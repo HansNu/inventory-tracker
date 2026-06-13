@@ -7,19 +7,22 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
+
+	"inventory-tracker/handler"
 )
 
 var db *pgx.Conn //global db connection
 
 func main() {
-	conn, err := pgx.Connect(context.Background(), os.Getenv("DATABASE_URL"))
+	db, err := pgx.Connect(context.Background(), os.Getenv("DATABASE_URL"))
 	if err != nil {
 		fmt.Println("Unable to connect to database:", err)
 		return
 	}
-	defer conn.Close(context.Background()) //defer conn.close : db connection when main finishes running
+	defer db.Close(context.Background()) //defer conn.close : db connection when main finishes running
+	handler.DB = db
 
 	r := gin.Default()
-	// r.POST("/assets", addAsset)
+	r.POST("/addAsset", handler.AddAsset)
 	r.Run(":8080")
 }
