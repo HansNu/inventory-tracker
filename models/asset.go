@@ -5,7 +5,7 @@ import (
 )
 
 type Asset struct {
-	ID            int       `json:"id"`
+	Id            int       `json:"id"`
 	AssetCode     string    `json:"asset_code"`
 	AssetName     string    `json:"asset_name"`
 	Brand         *string   `json:"brand"`

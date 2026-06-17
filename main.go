@@ -24,5 +24,8 @@ func main() {
 
 	r := gin.Default()
 	r.POST("/addAsset", handler.AddAsset)
+	r.GET("/getAssetList", handler.GetAssetList)
+	r.PUT("/updateAsset", handler.UpdateAsset)
+
 	r.Run(":8080")
 }
