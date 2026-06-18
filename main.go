@@ -26,6 +26,7 @@ func main() {
 	r.POST("/addAsset", handler.AddAsset)
 	r.GET("/getAssetList", handler.GetAssetList)
 	r.PUT("/updateAsset", handler.UpdateAsset)
+	r.DELETE("/deleteAsset", handler.DeleteAsset)
 
 	r.Run(":8080")
 }

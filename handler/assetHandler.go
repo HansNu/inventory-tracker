@@ -99,3 +99,22 @@ func UpdateAsset(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "Asset Updated Successfully"}) //sprintf returns a usable string like a variable
 }
+
+func DeleteAsset(c *gin.Context) {
+	var asset models.Asset
+
+	if err := c.ShouldBindBodyWithJSON(&asset); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	_, err := DB.Exec(context.Background(),
+		`DELETE FROM asset where asset_code = $1`, asset.AssetCode)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("%s Deleted Successfully", asset.AssetCode)})
+}
