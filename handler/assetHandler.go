@@ -48,8 +48,9 @@ func AddAsset(c *gin.Context) {
 
 func GetAssetList(c *gin.Context) {
 	//in go assetList here represents direct connection to database, it doesnt work like models in JS/.NET
+	var totalAsset int
 	assetList, err := DB.Query(context.Background(),
-		`Select asset_code, asset_name, brand, serial_number, status, location, "user", purchase_date, description from asset`)
+		`Select asset_code, asset_name, asset_category, brand, serial_number, status, location, "user", purchase_date, description, COUNT(*) over()as total_count from asset`)
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -61,7 +62,7 @@ func GetAssetList(c *gin.Context) {
 	var assets []models.Asset
 	for assetList.Next() {
 		var a models.Asset
-		err := assetList.Scan(&a.AssetCode, &a.AssetName, &a.Brand, &a.SerialNumber, &a.Status, &a.Location, &a.User, &a.PurchaseDate, &a.Description)
+		err := assetList.Scan(&a.AssetCode, &a.AssetName, &a.AssetCategory, &a.Brand, &a.SerialNumber, &a.Status, &a.Location, &a.User, &a.PurchaseDate, &a.Description, &totalAsset)
 		//& is to inject data directly into variables otherwise, struct stays empty
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -70,7 +71,10 @@ func GetAssetList(c *gin.Context) {
 		assets = append(assets, a)
 	}
 
-	c.JSON(http.StatusOK, assets)
+	c.JSON(http.StatusOK, models.AssetListResponse{
+		Data:  assets,
+		Total: totalAsset,
+	})
 }
 
 func UpdateAsset(c *gin.Context) {

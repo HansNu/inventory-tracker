@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5"
 
@@ -23,9 +24,19 @@ func main() {
 	handler.DB = db
 
 	r := gin.Default()
+
+	r.Use(cors.New(cors.Config{
+		AllowOrigins: []string{"http://localhost:5173"},
+		AllowMethods: []string{"GET", "POST", "PUT", "DELETE"},
+		AllowHeaders: []string{"Content-Type"},
+	}))
+
 	r.POST("/addAsset", handler.AddAsset)
+
 	r.GET("/getAssetList", handler.GetAssetList)
+
 	r.PUT("/updateAsset", handler.UpdateAsset)
+
 	r.DELETE("/deleteAsset", handler.DeleteAsset)
 
 	r.Run(":8080")
