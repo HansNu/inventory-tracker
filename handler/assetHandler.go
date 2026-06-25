@@ -7,15 +7,12 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5"
 
 	"inventory-tracker/models"
 )
 
-var DB *pgx.Conn
-
 // *  means i get actual data not a copy of the data from the dbcontext
-func AddAsset(c *gin.Context) {
+func (h *Handler) AddAsset(c *gin.Context) {
 	var asset models.Asset
 
 	// ShouldBindJSON reads the request body and maps it to the struct
@@ -25,7 +22,7 @@ func AddAsset(c *gin.Context) {
 		return
 	}
 
-	_, err := DB.Exec(context.Background(),
+	_, err := h.DB.Exec(context.Background(),
 		`INSERT INTO asset (asset_code, asset_name, brand, serial_number, asset_category, status, location, "user", purchase_date, description)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 		asset.AssetCode, asset.AssetName, asset.Brand, asset.SerialNumber,
@@ -46,11 +43,11 @@ func AddAsset(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"message": "Asset added successfully"})
 }
 
-func GetAssetList(c *gin.Context) {
+func (h *Handler) GetAssetList(c *gin.Context) {
 	//in go assetList here represents direct connection to database, it doesnt work like models in JS/.NET
 	var totalAsset int
-	assetList, err := DB.Query(context.Background(),
-		`Select asset_code, asset_name, asset_category, brand, serial_number, status, location, "user", purchase_date, description, COUNT(*) over()as total_count from asset`)
+	assetList, err := h.DB.Query(context.Background(),
+		`Select id, asset_code, asset_name, asset_category, brand, serial_number, status, location, "user", purchase_date, description, COUNT(*) over()as total_count from asset`)
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -62,7 +59,7 @@ func GetAssetList(c *gin.Context) {
 	var assets []models.Asset
 	for assetList.Next() {
 		var a models.Asset
-		err := assetList.Scan(&a.AssetCode, &a.AssetName, &a.AssetCategory, &a.Brand, &a.SerialNumber, &a.Status, &a.Location, &a.User, &a.PurchaseDate, &a.Description, &totalAsset)
+		err := assetList.Scan(&a.Id, &a.AssetCode, &a.AssetName, &a.AssetCategory, &a.Brand, &a.SerialNumber, &a.Status, &a.Location, &a.User, &a.PurchaseDate, &a.Description, &totalAsset)
 		//& is to inject data directly into variables otherwise, struct stays empty
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -77,7 +74,7 @@ func GetAssetList(c *gin.Context) {
 	})
 }
 
-func UpdateAsset(c *gin.Context) {
+func (h *Handler) UpdateAsset(c *gin.Context) {
 	var asset models.Asset
 
 	if err := c.ShouldBindBodyWithJSON(&asset); err != nil {
@@ -85,7 +82,7 @@ func UpdateAsset(c *gin.Context) {
 		return
 	}
 
-	result, err := DB.Exec(context.Background(),
+	result, err := h.DB.Exec(context.Background(),
 		`UPDATE asset SET asset_code = $1, asset_name = $2, brand = $3, serial_number = $4, asset_category = $5, status = $6, location = $7, "user" = $8, purchase_date = $9, description = $10 WHERE id = $11`,
 		asset.AssetCode, asset.AssetName, asset.Brand, asset.SerialNumber,
 		asset.AssetCategory, asset.Status, asset.Location, asset.User,
@@ -104,7 +101,7 @@ func UpdateAsset(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Asset Updated Successfully"}) //sprintf returns a usable string like a variable
 }
 
-func DeleteAsset(c *gin.Context) {
+func (h *Handler) DeleteAsset(c *gin.Context) {
 	var asset models.Asset
 
 	if err := c.ShouldBindBodyWithJSON(&asset); err != nil {
@@ -112,7 +109,7 @@ func DeleteAsset(c *gin.Context) {
 		return
 	}
 
-	_, err := DB.Exec(context.Background(),
+	_, err := h.DB.Exec(context.Background(),
 		`DELETE FROM asset where asset_code = $1`, asset.AssetCode)
 
 	if err != nil {

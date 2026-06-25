@@ -12,8 +12,6 @@ import (
 	"inventory-tracker/handler"
 )
 
-var db *pgx.Conn //global db connection
-
 func main() {
 	db, err := pgx.Connect(context.Background(), os.Getenv("DATABASE_URL"))
 	if err != nil {
@@ -21,8 +19,7 @@ func main() {
 		return
 	}
 	defer db.Close(context.Background()) //defer conn.close : db connection when main finishes running
-	handler.DB = db
-
+	h := &handler.Handler{DB: db}
 	r := gin.Default()
 
 	r.Use(cors.New(cors.Config{
@@ -31,13 +28,14 @@ func main() {
 		AllowHeaders: []string{"Content-Type"},
 	}))
 
-	r.POST("/addAsset", handler.AddAsset)
+	r.POST("/addAsset", h.AddAsset)
 
-	r.GET("/getAssetList", handler.GetAssetList)
+	r.GET("/getAssetList", h.GetAssetList)
+	r.GET("/getAssetCategoryList", h.GetAssetCategoryList)
 
-	r.PUT("/updateAsset", handler.UpdateAsset)
+	r.PUT("/updateAsset", h.UpdateAsset)
 
-	r.DELETE("/deleteAsset", handler.DeleteAsset)
+	r.DELETE("/deleteAsset", h.DeleteAsset)
 
 	r.Run(":8080")
 }

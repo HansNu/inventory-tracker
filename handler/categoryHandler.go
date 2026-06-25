@@ -1,0 +1,37 @@
+package handler
+
+import (
+	"context"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+
+	"inventory-tracker/models"
+)
+
+func (h *Handler) GetAssetCategoryList(c *gin.Context) {
+	//in go assetList here represents direct connection to database, it doesnt work like models in JS/.NET
+	assetCategoryList, err := h.DB.Query(context.Background(),
+		`Select id, category_name, category_group from category`)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer assetCategoryList.Close()
+
+	//that's why you have to reassign all data queried from the db to a struct in GO, this is the data we're returning
+	var assetCategory []models.AssetCategory
+	for assetCategoryList.Next() {
+		var a models.AssetCategory
+		err := assetCategoryList.Scan(&a.Id, &a.CategoryName, &a.CategoryGroup)
+		//& is to inject data directly into variables otherwise, struct stays empty
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		assetCategory = append(assetCategory, a)
+	}
+
+	c.JSON(http.StatusOK, assetCategory)
+}
