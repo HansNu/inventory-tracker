@@ -29,14 +29,15 @@ func main() {
 		AllowHeaders: []string{"Content-Type"},
 	}))
 
-	r.POST("/addAsset", h.AddAsset)
+	const api string = "api"
+	r.POST(api+"/addAsset", h.AddAsset)
 
-	r.GET("/getAssetList", h.GetAssetList)
-	r.GET("/getAssetCategoryList", h.GetAssetCategoryList)
+	r.GET(api+"/getAssetList", h.GetAssetList)
+	r.GET(api+"/getAssetCategoryList", h.GetAssetCategoryList)
 
-	r.PUT("/updateAsset", h.UpdateAsset)
+	r.PUT(api+"/updateAsset", h.UpdateAsset)
 
-	r.DELETE("/deleteAsset", h.DeleteAsset)
+	r.DELETE(api+"/deleteAsset", h.DeleteAsset)
 
 	r.Run(":8080")
 }

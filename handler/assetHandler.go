@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -44,23 +45,70 @@ func (h *Handler) AddAsset(c *gin.Context) {
 }
 
 func (h *Handler) GetAssetList(c *gin.Context) {
-	//in go assetList here represents direct connection to database, it doesnt work like models in JS/.NET
-	var totalAsset int
-	assetList, err := h.DB.Query(context.Background(),
-		`Select id, asset_code, asset_name, asset_category, brand, serial_number, status, location, "user", purchase_date, description, COUNT(*) over()as total_count from asset`)
+	// Req param
+	page := c.DefaultQuery("page", "1")
+	pageSize := c.DefaultQuery("pageSize", "10")
+	search := c.DefaultQuery("search", "")
+	status := c.DefaultQuery("status", "")
+	assetCategory := c.DefaultQuery("type", "")
+	sortField := c.DefaultQuery("sortField", "PurchaseDate")
+	sortOrder := c.DefaultQuery("sortOrder", "DESC")
 
+	// converter
+	pageInt, _ := strconv.Atoi(page)
+	pageSizeInt, _ := strconv.Atoi(pageSize)
+	offset := (pageInt - 1) * pageSizeInt
+
+	// page sorting
+	if sortOrder != "ascend" && sortOrder != "descend" {
+		sortOrder = "descend"
+	}
+	if sortOrder == "ascend" {
+		sortOrder = "ASC"
+	} else {
+		sortOrder = "DESC"
+	}
+
+	query := `SELECT id, asset_code, asset_name, asset_category, brand, serial_number, 
+              status, location, "user", purchase_date, description, COUNT(*) OVER() as total_count 
+              FROM asset WHERE 1=1`
+
+	args := []any{}
+	argIdx := 1
+
+	if search != "" {
+		query += fmt.Sprintf(" AND (asset_name ILIKE $%d OR location ILIKE $%d)", argIdx, argIdx+1)
+		args = append(args, "%"+search+"%", "%"+search+"%")
+		argIdx += 2
+	}
+
+	if status != "" {
+		query += fmt.Sprintf(" AND status = $%d", argIdx)
+		args = append(args, status)
+		argIdx++
+	}
+
+	if assetCategory != "" {
+		query += fmt.Sprintf(" AND asset_category = $%d", argIdx)
+		args = append(args, assetCategory)
+		argIdx++
+	}
+
+	query += fmt.Sprintf(" ORDER BY %s %s LIMIT $%d OFFSET $%d", sortField, sortOrder, argIdx, argIdx+1)
+	args = append(args, pageSizeInt, offset)
+
+	var totalAsset int
+	assetList, err := h.DB.Query(context.Background(), query, args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	defer assetList.Close()
 
-	//that's why you have to reassign all data queried from the db to a struct in GO, this is the data we're returning
 	var assets []models.Asset
 	for assetList.Next() {
 		var a models.Asset
 		err := assetList.Scan(&a.Id, &a.AssetCode, &a.AssetName, &a.AssetCategory, &a.Brand, &a.SerialNumber, &a.Status, &a.Location, &a.User, &a.PurchaseDate, &a.Description, &totalAsset)
-		//& is to inject data directly into variables otherwise, struct stays empty
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
