@@ -14,7 +14,7 @@ import (
 
 // *  means i get actual data not a copy of the data from the dbcontext
 func (h *Handler) AddAsset(c *gin.Context) {
-	var asset models.Asset
+	var asset models.AddAssetReq
 
 	// ShouldBindJSON reads the request body and maps it to the struct
 	// using the json tags we defined (e.g. json:"asset_code")
@@ -75,11 +75,16 @@ func (h *Handler) GetAssetList(c *gin.Context) {
 
 	args := []any{}
 	argIdx := 1
+	searchColumns := []string{"asset_code", "asset_name", "asset_category", "brand", "serial_number", "status", "location", `"user"`}
 
 	if search != "" {
-		query += fmt.Sprintf(" AND (asset_name ILIKE $%d OR location ILIKE $%d)", argIdx, argIdx+1)
-		args = append(args, "%"+search+"%", "%"+search+"%")
-		argIdx += 2
+		conditions := []string{}
+		for _, col := range searchColumns {
+			conditions = append(conditions, fmt.Sprintf("%s ILIKE $%d", col, argIdx))
+			args = append(args, "%"+search+"%")
+			argIdx++
+		}
+		query += " AND (" + strings.Join(conditions, " OR ") + ")"
 	}
 
 	if status != "" {
