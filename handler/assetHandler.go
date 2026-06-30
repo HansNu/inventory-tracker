@@ -127,6 +127,37 @@ func (h *Handler) GetAssetList(c *gin.Context) {
 	})
 }
 
+func (h *Handler) GetAssetByAssetCode(c *gin.Context) {
+	assetCode := c.Param("assetCode")
+	if assetCode == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "asset_code is required"})
+		return
+	}
+
+	result, err := h.DB.Query(context.Background(),
+		`Select id, asset_code, asset_name, asset_category, brand, serial_number, status, location, "user", purchase_date, description 
+     from asset where asset_code = $1`, assetCode)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer result.Close()
+
+	var a models.Asset
+	if !result.Next() {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Asset not found"})
+		return
+	}
+
+	if err := result.Scan(&a.Id, &a.AssetCode, &a.AssetName, &a.AssetCategory, &a.Brand, &a.SerialNumber, &a.Status, &a.Location, &a.User, &a.PurchaseDate, &a.Description); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, a)
+}
+
 func (h *Handler) UpdateAsset(c *gin.Context) {
 	var asset models.Asset
 
@@ -154,7 +185,7 @@ func (h *Handler) UpdateAsset(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Asset Updated Successfully"}) //sprintf returns a usable string like a variable
 }
 
-func (h *Handler) DeleteAsset(c *gin.Context) {
+func (h *Handler) DeleteAssetByAssetCode(c *gin.Context) {
 	var asset models.Asset
 
 	if err := c.ShouldBindBodyWithJSON(&asset); err != nil {

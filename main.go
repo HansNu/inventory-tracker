@@ -34,10 +34,11 @@ func main() {
 
 	r.GET(api+"/getAssetList", h.GetAssetList)
 	r.GET(api+"/getAssetCategoryList", h.GetAssetCategoryList)
+	r.GET(api+"/getAssetByAssetCode/:assetCode", h.GetAssetByAssetCode)
 
 	r.PUT(api+"/updateAsset", h.UpdateAsset)
 
-	r.DELETE(api+"/deleteAsset", h.DeleteAsset)
+	r.DELETE(api+"/deleteAssetByAssetCode", h.DeleteAssetByAssetCode)
 
 	r.Run(":8080")
 }
