@@ -159,7 +159,7 @@ func (h *Handler) GetAssetByAssetCode(c *gin.Context) {
 }
 
 func (h *Handler) UpdateAsset(c *gin.Context) {
-	var asset models.Asset
+	var asset models.AddAssetReq
 
 	if err := c.ShouldBindBodyWithJSON(&asset); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
