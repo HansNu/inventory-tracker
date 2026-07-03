@@ -31,6 +31,7 @@ func main() {
 
 	const api string = "api"
 	r.POST(api+"/addAsset", h.AddAsset)
+	r.POST(api+"/addAssetCategory", h.AddAssetCategory)
 
 	r.GET(api+"/getAssetList", h.GetAssetList)
 	r.GET(api+"/getAssetCategoryList", h.GetAssetCategoryList)

@@ -35,3 +35,24 @@ func (h *Handler) GetAssetCategoryList(c *gin.Context) {
 
 	c.JSON(http.StatusOK, assetCategory)
 }
+
+func (h *Handler) AddAssetCategory(c *gin.Context) {
+	var category models.AssetCategory
+
+	if err := c.ShouldBindBodyWithJSON(&category); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	_, err := h.DB.Exec(context.Background(),
+		`INSERT INTO category (category_name, category_group)
+		VALUES ($1, $2)`,
+		category.CategoryName, category.CategoryGroup)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"message": "Category Added Successfully"})
+}
