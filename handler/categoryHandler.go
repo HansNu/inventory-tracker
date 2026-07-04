@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"fmt"
 	"inventory-tracker/models"
 )
 
@@ -55,4 +56,23 @@ func (h *Handler) AddAssetCategory(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{"message": "Category Added Successfully"})
+}
+
+func (h *Handler) DeleteAssetCategoryById(c *gin.Context) {
+	var category models.AssetCategory
+
+	if err := c.ShouldBindBodyWithJSON(&category); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	_, err := h.DB.Exec(context.Background(),
+		`DELETE FROM category where id = $1`, category.Id)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("%s Deleted Successfully", category.CategoryName)})
 }

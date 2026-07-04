@@ -40,6 +40,7 @@ func main() {
 	r.PUT(api+"/updateAsset", h.UpdateAsset)
 
 	r.DELETE(api+"/deleteAssetByAssetCode", h.DeleteAssetByAssetCode)
+	r.DELETE(api+"/deleteAssetCategoryById", h.DeleteAssetCategoryById)
 
 	r.Run(":8080")
 }

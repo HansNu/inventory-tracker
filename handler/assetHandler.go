@@ -51,7 +51,7 @@ func (h *Handler) GetAssetList(c *gin.Context) {
 	search := c.DefaultQuery("search", "")
 	status := c.DefaultQuery("status", "")
 	assetCategory := c.DefaultQuery("type", "")
-	sortField := c.DefaultQuery("sortField", "PurchaseDate")
+	sortField := c.DefaultQuery("sortField", "purchase_date")
 	sortOrder := c.DefaultQuery("sortOrder", "DESC")
 
 	// converter
