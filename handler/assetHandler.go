@@ -24,10 +24,10 @@ func (h *Handler) AddAsset(c *gin.Context) {
 	}
 
 	_, err := h.DB.Exec(context.Background(),
-		`INSERT INTO asset (asset_code, asset_name, brand, serial_number, asset_category, status, location, "user", purchase_date, description)
+		`INSERT INTO asset (asset_code, asset_name, brand, serial_number, category_id, status, location, "user", purchase_date, description)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 		asset.AssetCode, asset.AssetName, asset.Brand, asset.SerialNumber,
-		asset.AssetCategory, asset.Status, asset.Location, asset.User,
+		asset.CategoryId, asset.Status, asset.Location, asset.User,
 		asset.PurchaseDate, asset.Description)
 
 	if err != nil {
@@ -69,13 +69,15 @@ func (h *Handler) GetAssetList(c *gin.Context) {
 		sortOrder = "DESC"
 	}
 
-	query := `SELECT id, asset_code, asset_name, asset_category, brand, serial_number, 
-              status, location, "user", purchase_date, description, COUNT(*) OVER() as total_count 
-              FROM asset WHERE 1=1`
+	query := `SELECT a.id, a.asset_code, a.asset_name, c.category_name, a.brand, a.serial_number, 
+              a.status, a.location, a."user", a.purchase_date, a.description, COUNT(*) OVER() as total_count 
+              FROM asset a
+			  JOIN category c on c.id = a.category_id
+			  WHERE 1=1`
 
 	args := []any{}
 	argIdx := 1
-	searchColumns := []string{"asset_code", "asset_name", "asset_category", "brand", "serial_number", "status", "location", `"user"`}
+	searchColumns := []string{"asset_code", "asset_name", "category_name", "brand", "serial_number", "status", "location", `"user"`}
 
 	if search != "" {
 		conditions := []string{}
@@ -94,7 +96,7 @@ func (h *Handler) GetAssetList(c *gin.Context) {
 	}
 
 	if assetCategory != "" {
-		query += fmt.Sprintf(" AND asset_category = $%d", argIdx)
+		query += fmt.Sprintf(" AND c.category_name = $%d", argIdx)
 		args = append(args, assetCategory)
 		argIdx++
 	}
@@ -113,7 +115,8 @@ func (h *Handler) GetAssetList(c *gin.Context) {
 	var assets []models.Asset
 	for assetList.Next() {
 		var a models.Asset
-		err := assetList.Scan(&a.Id, &a.AssetCode, &a.AssetName, &a.AssetCategory, &a.Brand, &a.SerialNumber, &a.Status, &a.Location, &a.User, &a.PurchaseDate, &a.Description, &totalAsset)
+		var ac models.AssetCategory
+		err := assetList.Scan(&a.Id, &a.AssetCode, &a.AssetName, &ac.CategoryName, &a.Brand, &a.SerialNumber, &a.Status, &a.Location, &a.User, &a.PurchaseDate, &a.Description, &totalAsset)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -135,8 +138,10 @@ func (h *Handler) GetAssetByAssetCode(c *gin.Context) {
 	}
 
 	result, err := h.DB.Query(context.Background(),
-		`Select id, asset_code, asset_name, asset_category, brand, serial_number, status, location, "user", purchase_date, description 
-     from asset where asset_code = $1`, assetCode)
+		`Select a.id, a.asset_code, a.asset_name, c.category_name, a.brand, a.serial_number, a.status, a.location, a."user", a.purchase_date, a.description 
+     			from asset a
+				join category c on c.id = a.category_id
+				where asset_code = $1`, assetCode)
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -167,9 +172,9 @@ func (h *Handler) UpdateAsset(c *gin.Context) {
 	}
 
 	result, err := h.DB.Exec(context.Background(),
-		`UPDATE asset SET asset_code = $1, asset_name = $2, brand = $3, serial_number = $4, asset_category = $5, status = $6, location = $7, "user" = $8, purchase_date = $9, description = $10 WHERE id = $11`,
+		`UPDATE asset SET asset_code = $1, asset_name = $2, brand = $3, serial_number = $4, category_id = $5, status = $6, location = $7, "user" = $8, purchase_date = $9, description = $10 WHERE id = $11`,
 		asset.AssetCode, asset.AssetName, asset.Brand, asset.SerialNumber,
-		asset.AssetCategory, asset.Status, asset.Location, asset.User,
+		asset.CategoryId, asset.Status, asset.Location, asset.User,
 		asset.PurchaseDate, asset.Description, asset.Id)
 
 	if err != nil {

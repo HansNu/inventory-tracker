@@ -6,16 +6,17 @@ import (
 
 type Asset struct {
 	Id            int        `json:"id"`
-	AssetCode     string     `json:"asset_code"`
-	AssetName     string     `json:"asset_name"`
+	AssetCode     string     `json:"assetCode"`
+	AssetName     string     `json:"assetName"`
 	Brand         *string    `json:"brand"`
-	SerialNumber  *string    `json:"serial_number"`
-	AssetCategory string     `json:"asset_category"`
+	SerialNumber  *string    `json:"serialNumber"`
+	CategoryId    string     `json:"CategoryId"`
+	AssetCategory string     `json:"AssetCategory"`
 	Status        string     `json:"status"`
 	Location      string     `json:"location"`
 	User          *string    `json:"user"`
-	PurchaseDate  *time.Time `json:"purchase_date"`
+	PurchaseDate  *time.Time `json:"purchaseDate"`
 	Description   *string    `json:"description"`
-	CreateDt      time.Time  `json:"create_dt"`
-	UpdateDt      time.Time  `json:"update_dt"`
+	CreateDt      time.Time  `json:"createDt"`
+	UpdateDt      time.Time  `json:"updateDt"`
 }
