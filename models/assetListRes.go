@@ -1,6 +1,6 @@
 package models
 
 type AssetListResponse struct {
-	Data  []Asset `json:"data"`
-	Total int     `json:"total"`
+	Data  []AssetResponse `json:"data"`
+	Total int             `json:"total"`
 }

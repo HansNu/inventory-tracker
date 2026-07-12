@@ -69,7 +69,7 @@ func (h *Handler) GetAssetList(c *gin.Context) {
 		sortOrder = "DESC"
 	}
 
-	query := `SELECT a.id, a.asset_code, a.asset_name, c.category_name, a.brand, a.serial_number, 
+	query := `SELECT a.id, a.asset_code, a.asset_name, c.id, c.category_name, a.brand, a.serial_number, 
               a.status, a.location, a."user", a.purchase_date, a.description, COUNT(*) OVER() as total_count 
               FROM asset a
 			  JOIN category c on c.id = a.category_id
@@ -112,11 +112,10 @@ func (h *Handler) GetAssetList(c *gin.Context) {
 	}
 	defer assetList.Close()
 
-	var assets []models.Asset
+	var assets []models.AssetResponse
 	for assetList.Next() {
-		var a models.Asset
-		var ac models.AssetCategory
-		err := assetList.Scan(&a.Id, &a.AssetCode, &a.AssetName, &ac.CategoryName, &a.Brand, &a.SerialNumber, &a.Status, &a.Location, &a.User, &a.PurchaseDate, &a.Description, &totalAsset)
+		var a models.AssetResponse
+		err := assetList.Scan(&a.Id, &a.AssetCode, &a.AssetName, &a.CategoryId, &a.CategoryName, &a.Brand, &a.SerialNumber, &a.Status, &a.Location, &a.User, &a.PurchaseDate, &a.Description, &totalAsset)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -138,7 +137,7 @@ func (h *Handler) GetAssetByAssetCode(c *gin.Context) {
 	}
 
 	result, err := h.DB.Query(context.Background(),
-		`Select a.id, a.asset_code, a.asset_name, c.category_name, a.brand, a.serial_number, a.status, a.location, a."user", a.purchase_date, a.description 
+		`Select a.id, a.asset_code, a.asset_name, a.category_id, c.category_name, a.brand, a.serial_number, a.status, a.location, a."user", a.purchase_date, a.description 
      			from asset a
 				join category c on c.id = a.category_id
 				where asset_code = $1`, assetCode)
@@ -149,13 +148,13 @@ func (h *Handler) GetAssetByAssetCode(c *gin.Context) {
 	}
 	defer result.Close()
 
-	var a models.Asset
+	var a models.AssetResponse
 	if !result.Next() {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Asset not found"})
 		return
 	}
 
-	if err := result.Scan(&a.Id, &a.AssetCode, &a.AssetName, &a.AssetCategory, &a.Brand, &a.SerialNumber, &a.Status, &a.Location, &a.User, &a.PurchaseDate, &a.Description); err != nil {
+	if err := result.Scan(&a.Id, &a.AssetCode, &a.AssetName, &a.CategoryId, &a.CategoryName, &a.Brand, &a.SerialNumber, &a.Status, &a.Location, &a.User, &a.PurchaseDate, &a.Description); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

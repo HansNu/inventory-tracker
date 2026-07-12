@@ -32,15 +32,18 @@ func main() {
 	const api string = "api"
 	r.POST(api+"/addAsset", h.AddAsset)
 	r.POST(api+"/addAssetCategory", h.AddAssetCategory)
+	r.POST(api+"/addCategoryGroup", h.AddCategoryGroup)
 
 	r.GET(api+"/getAssetList", h.GetAssetList)
 	r.GET(api+"/getAssetCategoryList", h.GetAssetCategoryList)
 	r.GET(api+"/getAssetByAssetCode/:assetCode", h.GetAssetByAssetCode)
+	r.GET(api+"/getCategoryGroup", h.GetCategoryGroup)
 
 	r.PUT(api+"/updateAsset", h.UpdateAsset)
 
 	r.DELETE(api+"/deleteAssetByAssetCode", h.DeleteAssetByAssetCode)
 	r.DELETE(api+"/deleteAssetCategoryById", h.DeleteAssetCategoryById)
+	r.DELETE(api+"/deleteCategoryGroup", h.DeleteCategoryGroupById)
 
 	r.Run(":8080")
 }

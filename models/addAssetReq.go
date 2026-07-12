@@ -6,7 +6,6 @@ type AddAssetReq struct {
 	AssetName    string  `json:"assetName"`
 	Brand        *string `json:"brand"`
 	SerialNumber *string `json:"serialNumber"`
-	// AssetCategory *string `json:"assetCategory"`
 	CategoryId   int     `json:"categoryId"`
 	Status       string  `json:"status"`
 	Location     string  `json:"location"`

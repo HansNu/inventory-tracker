@@ -19,7 +19,6 @@ func (h *Handler) GetAssetCategoryList(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	defer assetCategoryList.Close()
 
 	//that's why you have to reassign all data queried from the db to a struct in GO, this is the data we're returning
 	var assetCategory []models.AssetCategory
