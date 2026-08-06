@@ -22,7 +22,7 @@ func (h *Handler) GetCategoryGroup(c *gin.Context) {
 	var catGroup []models.CategoryGroup
 	for catGroupList.Next() {
 		var a models.CategoryGroup
-		err := catGroupList.Scan(&a.GroupName)
+		err := catGroupList.Scan(&a.Id, &a.GroupName)
 
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

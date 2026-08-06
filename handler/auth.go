@@ -25,7 +25,7 @@ func (h *Handler) Register(c *gin.Context) {
 	).Scan(&exists)
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 

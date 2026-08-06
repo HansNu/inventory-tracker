@@ -41,6 +41,7 @@ func main() {
 		auth.POST("/register", h.Register)
 		auth.POST("/login", h.Login)
 	}
+	r.GET(api+"/getCategoryGroup", h.GetCategoryGroup)
 
 	protected := r.Group(api)
 	protected.Use(middleware.AuthMiddleware())
@@ -54,7 +55,6 @@ func main() {
 		protected.GET("/getAssetList", h.GetAssetList)
 		protected.GET("/getAssetCategoryList", h.GetAssetCategoryList)
 		protected.GET("/getAssetByAssetCode/:assetCode", h.GetAssetByAssetCode)
-		protected.GET("/getCategoryGroup", h.GetCategoryGroup)
 
 		protected.PUT("/updateAsset", h.UpdateAsset)
 
