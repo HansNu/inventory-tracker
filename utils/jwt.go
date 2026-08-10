@@ -2,12 +2,23 @@ package utils
 
 import (
 	"errors"
+	"os"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
 
-var jwtSecret = []byte("your-secret-key-change-in-production")
+var jwtSecret = []byte(getJWTSecret())
+
+func getJWTSecret() string {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		panic("JWT_SECRET env var is not set")
+		// panic on missing secret in prod is intentional — better to crash
+		// loudly at startup than silently sign tokens with an empty key
+	}
+	return secret
+}
 
 type Claims struct {
 	UserID int    `json:"user_id"`

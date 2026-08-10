@@ -25,9 +25,15 @@ func main() {
 
 	h := &handler.Handler{DB: db}
 	r := gin.Default()
+	r.SetTrustedProxies([]string{"127.0.0.1"})
+
+	allowedOrigin := os.Getenv("FRONTEND_ORIGIN")
+	if allowedOrigin == "" {
+		allowedOrigin = "http://localhost:5173"
+	}
 
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:5173"},
+		AllowOrigins:     []string{allowedOrigin},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Content-Type", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},
