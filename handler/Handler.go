@@ -2,6 +2,8 @@ package handler
 
 import (
 	"context"
+	"inventory-tracker/repository"
+	service "inventory-tracker/services"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -17,5 +19,6 @@ type DBTX interface {
 
 type Handler struct {
 	// DB *pgxpool.Pool //FOR DB HITS
-	DB DBTX //FOR DB TESTING
+	DB      repository.DBTX //FOR DB TESTING
+	Service service.AssetService
 }

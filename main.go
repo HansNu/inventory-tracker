@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"inventory-tracker/handler"
 	"inventory-tracker/middleware"
+	"inventory-tracker/repository"
+	service "inventory-tracker/services"
 	"os"
 
 	"github.com/gin-contrib/cors"
@@ -23,7 +25,12 @@ func main() {
 
 	config.LoadConfig()
 
-	h := &handler.Handler{DB: db}
+	repo := repository.NewAssetRepo(db)
+	svc := service.NewAssetService(repo)
+	h := &handler.Handler{
+		DB:      db,
+		Service: svc,
+	}
 	r := gin.Default()
 	r.SetTrustedProxies([]string{"127.0.0.1"})
 

@@ -15,32 +15,21 @@ import (
 // *  means i get actual data not a copy of the data from the dbcontext
 func (h *Handler) AddAsset(c *gin.Context) {
 	var asset models.AddAssetReq
-
-	// ShouldBindJSON reads the request body and maps it to the struct
-	// using the json tags we defined (e.g. json:"asset_code")
 	if err := c.ShouldBindBodyWithJSON(&asset); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	_, err := h.DB.Exec(context.Background(),
-		`INSERT INTO asset (asset_code, asset_name, brand, serial_number, category_id, status, location, "user", purchase_date, description)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-		asset.AssetCode, asset.AssetName, asset.Brand, asset.SerialNumber,
-		asset.CategoryId, asset.Status, asset.Location, asset.User,
-		asset.PurchaseDate, asset.Description)
-
+	err := h.Service.AddAsset(context.Background(), asset)
 	if err != nil {
-		// http.StatusInternalServerError = 500, means something went wrong on our end
 		if strings.Contains(err.Error(), "unique constraint") {
-			c.JSON(http.StatusConflict, gin.H{"error": "Asset code already exists"})
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	// http.StatusCreated = 201, standard response for successful POST/create
 	c.JSON(http.StatusCreated, gin.H{"message": "Asset added successfully"})
 }
 

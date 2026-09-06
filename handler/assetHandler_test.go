@@ -2,126 +2,93 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
-	"inventory-tracker/models"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"inventory-tracker/models"
+	service "inventory-tracker/services"
+
 	"github.com/gin-gonic/gin"
-	"github.com/pashagolub/pgxmock/v4"
 )
 
-func strPtr(s string) *string { return &s } //go doesnt have features that allows actual nullable so it would need to serve through pointers
+func strPtr(s string) *string { return &s } // Go has no literal address-of for a string constant; wrap it in a variable first
+
+// fakeAssetService is a test double for service.AssetService — lets us control
+// exactly what AddAsset returns without touching a real or mocked database.
+type fakeAssetService struct {
+	addAssetFunc func(ctx context.Context, asset models.AddAssetReq) error
+}
+
+func (f *fakeAssetService) AddAsset(ctx context.Context, asset models.AddAssetReq) error {
+	return f.addAssetFunc(ctx, asset)
+}
 
 func TestAddAsset(t *testing.T) {
-	gin.SetMode(gin.TestMode) //silences gin logging, makes output readable. Doesnt affect behavior
+	gin.SetMode(gin.TestMode) // silences gin logging, makes output readable; doesn't affect behavior
 
-	mockDB, err := pgxmock.NewPool() //fake db connection pool
-	if err != nil {
-		t.Fatalf("failed to create mock pool: %v", err)
-	}
-	defer mockDB.Close()
-
-	h := &Handler{DB: mockDB}
-
-	// The table. It tells what we send in, what we tell fake DB to do when it receives the query, what http status we expect to return
 	cases := []struct {
 		name           string
 		input          models.AddAssetReq
-		mockSetup      func(mockDB pgxmock.PgxPoolIface)
+		mockSetup      func() service.AssetService // builds the fake service for this case
 		expectedStatus int
 	}{
 		{
 			name: "valid asset",
 			input: models.AddAssetReq{
-				AssetCode:    "SCH-01330",
-				AssetName:    "Asus Zenbook",
-				Brand:        strPtr("Asus"),
-				SerialNumber: strPtr("12304990fr"),
-				CategoryId:   2, // match whatever type your struct actually declares
-				Status:       "Active",
-				Location:     "Room 4",
-				User:         strPtr("hantest"),
-				PurchaseDate: strPtr("2026-07-06"),
-				Description:  strPtr("Very good"),
+				AssetCode:  "AST-001",
+				AssetName:  "Dell Laptop",
+				Brand:      strPtr("Dell"),
+				CategoryId: 2,
+				Status:     "active",
 			},
-			mockSetup: func(mockDB pgxmock.PgxPoolIface) {
-				mockDB.ExpectExec("INSERT INTO asset").
-					WithArgs(
-						pgxmock.AnyArg(), // asset_code
-						pgxmock.AnyArg(), // asset_name
-						pgxmock.AnyArg(), // brand
-						pgxmock.AnyArg(), // serial_number
-						pgxmock.AnyArg(), // category_id
-						pgxmock.AnyArg(), // status
-						pgxmock.AnyArg(), // location
-						pgxmock.AnyArg(), // user
-						pgxmock.AnyArg(), // purchase_date
-						pgxmock.AnyArg(), // description
-					).
-					WillReturnResult(pgxmock.NewResult("INSERT", 1))
+			mockSetup: func() service.AssetService {
+				return &fakeAssetService{
+					addAssetFunc: func(ctx context.Context, asset models.AddAssetReq) error {
+						return nil // simulate success
+					},
+				}
 			},
 			expectedStatus: http.StatusCreated,
 		},
 		{
 			name: "duplicate asset code rejected",
 			input: models.AddAssetReq{
-				AssetCode:    "SCH-01330", // same code as above, on purpose
-				AssetName:    "Asus Zenbook",
-				Brand:        strPtr("Asus"),
-				SerialNumber: strPtr("12304990fr"),
-				CategoryId:   2,
-				Status:       "Active",
-				Location:     "Room 4",
-				User:         strPtr("hantest"),
-				PurchaseDate: strPtr("2026-07-06"),
-				Description:  strPtr("Very good"),
+				AssetCode:  "AST-001",
+				AssetName:  "Dell Laptop",
+				CategoryId: 2,
+				Status:     "active",
 			},
-			mockSetup: func(mockDB pgxmock.PgxPoolIface) {
-				mockDB.ExpectExec("INSERT INTO asset").
-					WithArgs(
-						pgxmock.AnyArg(), // asset_code
-						pgxmock.AnyArg(), // asset_name
-						pgxmock.AnyArg(), // brand
-						pgxmock.AnyArg(), // serial_number
-						pgxmock.AnyArg(), // category_id
-						pgxmock.AnyArg(), // status
-						pgxmock.AnyArg(), // location
-						pgxmock.AnyArg(), // user
-						pgxmock.AnyArg(), // purchase_date
-						pgxmock.AnyArg(), // description
-					).
-					WillReturnError(errors.New("unique constraint violation"))
+			mockSetup: func() service.AssetService {
+				return &fakeAssetService{
+					addAssetFunc: func(ctx context.Context, asset models.AddAssetReq) error {
+						return errors.New("unique constraint violation")
+					},
+				}
 			},
-			expectedStatus: http.StatusConflict, // 409 — AddAsset's specific handling for this case
+			expectedStatus: http.StatusConflict,
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			tc.mockSetup(mockDB)
+			h := &Handler{Service: tc.mockSetup()} // fresh handler per case, wired to that case's fake service
 
 			body, _ := json.Marshal(tc.input)
 
-			w := httptest.NewRecorder() //captures what the handler wrotes to inspect later
+			w := httptest.NewRecorder()      // captures what the handler writes, to inspect later
+			c, _ := gin.CreateTestContext(w) // fake gin context wrapping the recorder
 
-			c, _ := gin.CreateTestContext(w) //fake gin context to recorder, same type AddASset Expect as its argument
-
-			c.Request = httptest.NewRequest(http.MethodPost, "/assets", bytes.NewReader(body)) //build real request with json body
+			c.Request = httptest.NewRequest(http.MethodPost, "/assets", bytes.NewReader(body))
 			c.Request.Header.Set("Content-Type", "application/json")
 
-			h.AddAsset(c) //call handler
+			h.AddAsset(c) // call the real handler — it parses the body, calls h.Service.AddAsset, writes the response
 
-			//check what got written
 			if w.Code != tc.expectedStatus {
 				t.Errorf("status = %d; want %d, body: %s", w.Code, tc.expectedStatus, w.Body.String())
-			}
-
-			//confirm if the mock actually saw the query it expected
-			if err := mockDB.ExpectationsWereMet(); err != nil {
-				t.Errorf("unmet mock expectations: %v", err)
 			}
 		})
 	}
