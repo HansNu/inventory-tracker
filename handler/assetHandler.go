@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -15,117 +14,47 @@ import (
 // *  means i get actual data not a copy of the data from the dbcontext
 func (h *Handler) AddAsset(c *gin.Context) {
 	var asset models.AddAssetReq
-
-	// ShouldBindJSON reads the request body and maps it to the struct
-	// using the json tags we defined (e.g. json:"asset_code")
 	if err := c.ShouldBindBodyWithJSON(&asset); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		fmt.Printf("[handler] parsed asset: %+v\n", asset)
 		return
 	}
 
-	_, err := h.DB.Exec(context.Background(),
-		`INSERT INTO asset (asset_code, asset_name, brand, serial_number, category_id, status, location, "user", purchase_date, description)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-		asset.AssetCode, asset.AssetName, asset.Brand, asset.SerialNumber,
-		asset.CategoryId, asset.Status, asset.Location, asset.User,
-		asset.PurchaseDate, asset.Description)
+	err := h.Service.AddAsset(context.Background(), asset)
+	fmt.Println("[handler] service call returned, err =", err)
 
 	if err != nil {
-		// http.StatusInternalServerError = 500, means something went wrong on our end
 		if strings.Contains(err.Error(), "unique constraint") {
-			c.JSON(http.StatusConflict, gin.H{"error": "Asset code already exists"})
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	// http.StatusCreated = 201, standard response for successful POST/create
 	c.JSON(http.StatusCreated, gin.H{"message": "Asset added successfully"})
 }
 
 func (h *Handler) GetAssetList(c *gin.Context) {
-	// Req param
-	page := c.DefaultQuery("page", "1")
-	pageSize := c.DefaultQuery("pageSize", "10")
-	search := c.DefaultQuery("search", "")
-	status := c.DefaultQuery("status", "")
-	assetCategory := c.DefaultQuery("type", "")
-	sortField := c.DefaultQuery("sortField", "purchase_date")
-	sortOrder := c.DefaultQuery("sortOrder", "DESC")
-
-	// converter
-	pageInt, _ := strconv.Atoi(page)
-	pageSizeInt, _ := strconv.Atoi(pageSize)
-	offset := (pageInt - 1) * pageSizeInt
-
-	// page sorting
-	if sortOrder != "ascend" && sortOrder != "descend" {
-		sortOrder = "descend"
-	}
-	if sortOrder == "ascend" {
-		sortOrder = "ASC"
-	} else {
-		sortOrder = "DESC"
+	params := models.AssetListParams{
+		Page:          c.DefaultQuery("page", "1"),
+		PageSize:      c.DefaultQuery("pageSize", "10"),
+		Search:        c.DefaultQuery("search", ""),
+		Status:        c.DefaultQuery("status", ""),
+		AssetCategory: c.DefaultQuery("type", ""),
+		SortField:     c.DefaultQuery("sortField", "purchase_date"),
+		SortOrder:     c.DefaultQuery("sortOrder", "descend"),
 	}
 
-	query := `SELECT a.id, a.asset_code, a.asset_name, c.id, c.category_name, a.brand, a.serial_number, 
-              a.status, a.location, a."user", a.purchase_date, a.description, COUNT(*) OVER() as total_count 
-              FROM asset a
-			  JOIN category c on c.id = a.category_id
-			  WHERE 1=1`
-
-	args := []any{}
-	argIdx := 1
-	searchColumns := []string{"asset_code", "asset_name", "category_name", "brand", "serial_number", "status", "location", `"user"`}
-
-	if search != "" {
-		conditions := []string{}
-		for _, col := range searchColumns {
-			conditions = append(conditions, fmt.Sprintf("%s ILIKE $%d", col, argIdx))
-			args = append(args, "%"+search+"%")
-			argIdx++
-		}
-		query += " AND (" + strings.Join(conditions, " OR ") + ")"
-	}
-
-	if status != "" {
-		query += fmt.Sprintf(" AND status = $%d", argIdx)
-		args = append(args, status)
-		argIdx++
-	}
-
-	if assetCategory != "" {
-		query += fmt.Sprintf(" AND c.category_name = $%d", argIdx)
-		args = append(args, assetCategory)
-		argIdx++
-	}
-
-	query += fmt.Sprintf(" ORDER BY %s %s LIMIT $%d OFFSET $%d", sortField, sortOrder, argIdx, argIdx+1)
-	args = append(args, pageSizeInt, offset)
-
-	var totalAsset int
-	assetList, err := h.DB.Query(context.Background(), query, args...)
+	assets, total, err := h.Service.GetAssetList(c.Request.Context(), params)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	defer assetList.Close()
-
-	var assets []models.AssetResponse
-	for assetList.Next() {
-		var a models.AssetResponse
-		err := assetList.Scan(&a.Id, &a.AssetCode, &a.AssetName, &a.CategoryId, &a.CategoryName, &a.Brand, &a.SerialNumber, &a.Status, &a.Location, &a.User, &a.PurchaseDate, &a.Description, &totalAsset)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		assets = append(assets, a)
-	}
 
 	c.JSON(http.StatusOK, models.AssetListResponse{
 		Data:  assets,
-		Total: totalAsset,
+		Total: total,
 	})
 }
 

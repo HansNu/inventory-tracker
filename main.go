@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"inventory-tracker/handler"
 	"inventory-tracker/middleware"
+	"inventory-tracker/repository"
+	service "inventory-tracker/services"
 	"os"
 
 	"github.com/gin-contrib/cors"
@@ -23,7 +25,12 @@ func main() {
 
 	config.LoadConfig()
 
-	h := &handler.Handler{DB: db}
+	repo := repository.NewAssetRepo(db)
+	svc := service.NewAssetService(repo)
+	h := &handler.Handler{
+		DB:      db,
+		Service: svc,
+	}
 	r := gin.Default()
 	r.SetTrustedProxies([]string{"127.0.0.1"})
 
@@ -46,26 +53,41 @@ func main() {
 	{
 		auth.POST("/register", h.Register)
 		auth.POST("/login", h.Login)
+
+		auth.GET("/me", h.GetCurrentUser)
+
+		auth.POST("/addAsset", h.AddAsset)
+		auth.POST("/addAssetCategory", h.AddAssetCategory)
+		auth.POST("/addCategoryGroup", h.AddCategoryGroup)
+
+		auth.GET("/getAssetList", h.GetAssetList)
+		auth.GET("/getAssetCategoryList", h.GetAssetCategoryList)
+		auth.GET("/getAssetByAssetCode/:assetCode", h.GetAssetByAssetCode)
+
+		auth.PUT("/updateAsset", h.UpdateAsset)
+
+		auth.DELETE("/deleteAssetByAssetCode", h.DeleteAssetByAssetCode)
+		auth.DELETE("/deleteAssetCategoryById", h.DeleteAssetCategoryById)
 	}
 	r.GET(api+"/getCategoryGroup", h.GetCategoryGroup)
 
 	protected := r.Group(api)
 	protected.Use(middleware.AuthMiddleware())
 	{
-		protected.GET("/me", h.GetCurrentUser)
+		// protected.GET("/me", h.GetCurrentUser)
 
-		protected.POST("/addAsset", h.AddAsset)
-		protected.POST("/addAssetCategory", h.AddAssetCategory)
-		protected.POST("/addCategoryGroup", h.AddCategoryGroup)
+		// protected.POST("/addAsset", h.AddAsset)
+		// protected.POST("/addAssetCategory", h.AddAssetCategory)
+		// protected.POST("/addCategoryGroup", h.AddCategoryGroup)
 
-		protected.GET("/getAssetList", h.GetAssetList)
-		protected.GET("/getAssetCategoryList", h.GetAssetCategoryList)
-		protected.GET("/getAssetByAssetCode/:assetCode", h.GetAssetByAssetCode)
+		// protected.GET("/getAssetList", h.GetAssetList)
+		// protected.GET("/getAssetCategoryList", h.GetAssetCategoryList)
+		// protected.GET("/getAssetByAssetCode/:assetCode", h.GetAssetByAssetCode)
 
-		protected.PUT("/updateAsset", h.UpdateAsset)
+		// protected.PUT("/updateAsset", h.UpdateAsset)
 
-		protected.DELETE("/deleteAssetByAssetCode", h.DeleteAssetByAssetCode)
-		protected.DELETE("/deleteAssetCategoryById", h.DeleteAssetCategoryById)
+		// protected.DELETE("/deleteAssetByAssetCode", h.DeleteAssetByAssetCode)
+		// protected.DELETE("/deleteAssetCategoryById", h.DeleteAssetCategoryById)
 	}
 
 	admin := r.Group(api)
