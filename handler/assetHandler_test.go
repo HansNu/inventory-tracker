@@ -5,12 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"inventory-tracker/models"
+	service "inventory-tracker/services"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"inventory-tracker/models"
-	service "inventory-tracker/services"
 
 	"github.com/gin-gonic/gin"
 )
@@ -21,10 +20,15 @@ func strPtr(s string) *string { return &s } // Go has no literal address-of for 
 // exactly what AddAsset returns without touching a real or mocked database.
 type fakeAssetService struct {
 	addAssetFunc func(ctx context.Context, asset models.AddAssetReq) error
+	getAssetList func(ctx context.Context, params models.AssetListParams) ([]models.AssetResponse, int, error)
 }
 
 func (f *fakeAssetService) AddAsset(ctx context.Context, asset models.AddAssetReq) error {
 	return f.addAssetFunc(ctx, asset)
+}
+
+func (f *fakeAssetService) GetAssetList(ctx context.Context, params models.AssetListParams) ([]models.AssetResponse, int, error) {
+	return f.getAssetList(ctx, params)
 }
 
 func TestAddAsset(t *testing.T) {

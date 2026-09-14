@@ -7,7 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	// "github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type DBTX interface {
@@ -18,7 +18,7 @@ type DBTX interface {
 }
 
 type Handler struct {
-	// DB *pgxpool.Pool //FOR DB HITS
-	DB      repository.DBTX //FOR DB TESTING
+	DB      *pgxpool.Pool   //FOR DB HITS
+	DBT     repository.DBTX //FOR DB TESTING
 	Service service.AssetService
 }
