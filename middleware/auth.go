@@ -50,7 +50,13 @@ func RoleMiddleware(allowedRoles ...string) gin.HandlerFunc {
 			return
 		}
 
-		roleStr := userRole.(string)
+		roleStr, ok := userRole.(string)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalod user role"})
+			c.Abort()
+			return
+		}
+
 		for _, role := range allowedRoles {
 			if roleStr == role {
 				c.Next()
