@@ -10,6 +10,8 @@
 
 # Test binary, built with `go test -c`
 *.test
+*.out
+coverage.html
 
 # Code coverage profiles and other test artifacts
 *.out
@@ -26,10 +28,12 @@ go.work.sum
 
 # env file
 .env
+.env.local
+
 
 # Editor/IDE
-# .idea/
-# .vscode/
+.idea/
+.vscode/
 
 # Built binaries
 task-cli
@@ -39,3 +43,10 @@ inventory-tracker
 # OS files
 .DS_Store
 Thumbs.db
+
+__debug_bin*
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
