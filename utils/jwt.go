@@ -44,7 +44,8 @@ func GenerateToken(userID int, role string) (string, error) {
 func ValidateToken(tokenString string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
 		return jwtSecret, nil
-	})
+	},
+		jwt.WithValidMethods([]string{"HS256"}))
 
 	if err != nil {
 		return nil, err
