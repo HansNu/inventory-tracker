@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -92,6 +93,7 @@ func (h *Handler) GetAssetByAssetCode(c *gin.Context) {
 }
 
 func (h *Handler) UpdateAsset(c *gin.Context) {
+	id, _ := strconv.Atoi(c.Param("id"))
 	var asset models.AddAssetReq
 
 	if err := c.ShouldBindBodyWithJSON(&asset); err != nil {
@@ -103,7 +105,7 @@ func (h *Handler) UpdateAsset(c *gin.Context) {
 		`UPDATE asset SET asset_code = $1, asset_name = $2, brand = $3, serial_number = $4, category_id = $5, status = $6, location = $7, "user" = $8, purchase_date = $9, description = $10 WHERE id = $11`,
 		asset.AssetCode, asset.AssetName, asset.Brand, asset.SerialNumber,
 		asset.CategoryId, asset.Status, asset.Location, asset.User,
-		asset.PurchaseDate, asset.Description, asset.Id)
+		asset.PurchaseDate, asset.Description, id)
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -111,7 +113,7 @@ func (h *Handler) UpdateAsset(c *gin.Context) {
 	}
 
 	if result.RowsAffected() == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Asset Id %d not found", asset.Id)})
+		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Asset Id %d not found", id)})
 		return
 	}
 
@@ -119,20 +121,19 @@ func (h *Handler) UpdateAsset(c *gin.Context) {
 }
 
 func (h *Handler) DeleteAssetByAssetCode(c *gin.Context) {
-	var asset models.Asset
-
-	if err := c.ShouldBindBodyWithJSON(&asset); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	assetCode := c.Param("assetCode")
+	if assetCode == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "asset_code is required"})
 		return
 	}
 
 	_, err := h.DB.Exec(context.Background(),
-		`DELETE FROM asset where asset_code = $1`, asset.AssetCode)
+		`DELETE FROM asset where asset_code = $1`, assetCode)
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("%s Deleted Successfully", asset.AssetCode)})
+	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("%s Deleted Successfully", assetCode)})
 }
