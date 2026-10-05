@@ -48,12 +48,13 @@ func main() {
 	const api string = "api"
 
 	r.GET("/health", func(c *gin.Context) {
-		if err := db.Ping(context.Background()); err != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "degraded", "db": "unreachable"})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
-	})
+    if err := db.Ping(c.Request.Context()); err != nil {
+        log.Printf("health: db ping failed: %v", err)
+        c.JSON(http.StatusServiceUnavailable, gin.H{"status": "degraded"})
+        return
+    }
+    c.JSON(http.StatusOK, gin.H{"status": "ok"})
+})
 
 	auth := r.Group(api + "/auth")
 	{
