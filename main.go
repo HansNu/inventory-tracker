@@ -29,7 +29,7 @@ func main() {
 		Service: svc,
 	}
 	r := gin.Default()
-	r.SetTrustedProxies([]string{"127.0.0.1"})
+	r.SetTrustedProxies(nil)
 
 	allowedOrigin := os.Getenv("FRONTEND_ORIGIN")
 	if allowedOrigin == "" {
@@ -79,5 +79,9 @@ func main() {
 		admin.DELETE("/deleteCategoryGroup", h.DeleteCategoryGroupById)
 	}
 
-	r.Run(":8080")
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	r.Run(":" + port)
 }

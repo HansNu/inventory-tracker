@@ -1,0 +1,10 @@
+.git
+.github
+.env
+.env.*
+*.exe
+__debug_bin*
+node_modules
+README.md
+Dockerfile
+docker-compose.yml
