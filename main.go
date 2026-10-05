@@ -7,6 +7,7 @@ import (
 	"inventory-tracker/middleware"
 	"inventory-tracker/repository"
 	service "inventory-tracker/services"
+	"net/http"
 	"os"
 
 	"github.com/gin-contrib/cors"
@@ -45,6 +46,14 @@ func main() {
 	}))
 
 	const api string = "api"
+
+	r.GET("/health", func(c *gin.Context) {
+		if err := db.Ping(context.Background()); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "degraded", "db": "unreachable"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
 
 	auth := r.Group(api + "/auth")
 	{
