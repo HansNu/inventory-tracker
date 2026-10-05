@@ -67,10 +67,10 @@ func main() {
 		protected.GET("/getAssetCategoryList", h.GetAssetCategoryList)
 		protected.GET("/getAssetByAssetCode/:assetCode", h.GetAssetByAssetCode)
 
-		protected.PUT("/updateAsset", h.UpdateAsset)
+		protected.PUT("/updateAsset/:id", h.UpdateAsset)
 
-		protected.DELETE("/deleteAssetByAssetCode", h.DeleteAssetByAssetCode)
-		protected.DELETE("/deleteAssetCategoryById", h.DeleteAssetCategoryById)
+		protected.DELETE("/deleteAssetByAssetCode/:assetCode", h.DeleteAssetByAssetCode)
+		protected.DELETE("/deleteAssetCategoryById/:id", h.DeleteAssetCategoryById)
 	}
 
 	admin := r.Group(api)
