@@ -7,6 +7,7 @@ import (
 	"inventory-tracker/middleware"
 	"inventory-tracker/repository"
 	service "inventory-tracker/services"
+	"log"
 	"net/http"
 	"os"
 
@@ -48,13 +49,13 @@ func main() {
 	const api string = "api"
 
 	r.GET("/health", func(c *gin.Context) {
-    if err := db.Ping(c.Request.Context()); err != nil {
-        c.JSON(http.StatusServiceUnavailable, gin.H{"status": "degraded"})
-        return
-    }
-    c.JSON(http.StatusOK, gin.H{"status": "ok"})
-})
-
+		if err := db.Ping(c.Request.Context()); err != nil {
+			log.Printf("health: db ping failed: %v", err)
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "degraded"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
 	auth := r.Group(api + "/auth")
 	{
 		auth.POST("/register", h.Register)
