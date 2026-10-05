@@ -1,4 +1,5 @@
 # Inventory Tracker API
+![CI](https://github.com/<your-username>/inventory-tracker/actions/workflows/ci.yml/badge.svg)
 
 A REST API for tracking IT assets — hardware inventory, assignment to users,
 categories and category groups — built with Go, Gin and PostgreSQL.
@@ -91,4 +92,3 @@ Covered: handler-level tests for `AddAsset` and `GetAssetList` against a fake
 service, and middleware tests covering missing, malformed, expired,
 wrong-key and `alg: none` tokens.
 
-![CI](https://github.com/<your-username>/inventory-tracker/actions/workflows/ci.yml/badge.svg)
