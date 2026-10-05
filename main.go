@@ -49,7 +49,7 @@ func main() {
 
 	r.GET("/health", func(c *gin.Context) {
     if err := db.Ping(c.Request.Context()); err != nil {
-        log.Printf("health: db ping failed: %v", err)
+        log.Printf("health: db ping: %v", err)
         c.JSON(http.StatusServiceUnavailable, gin.H{"status": "degraded"})
         return
     }
