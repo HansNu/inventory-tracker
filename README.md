@@ -91,11 +91,4 @@ Covered: handler-level tests for `AddAsset` and `GetAssetList` against a fake
 service, and middleware tests covering missing, malformed, expired,
 wrong-key and `alg: none` tokens.
 
-## Known gaps
-
-- Endpoint naming is RPC-style (`/addAsset`) rather than resource-oriented
-  (`POST /assets`); a REST-conventional rewrite is planned.
-- `auth.go` and the category handlers still query the database directly and
-  have not been moved into the service/repository layers.
-- No container or CI pipeline yet — both in progress.
-- Tokens are stateless and cannot be revoked before expiry.
+![CI](https://github.com/<your-username>/inventory-tracker/actions/workflows/ci.yml/badge.svg)
