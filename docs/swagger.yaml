@@ -1,0 +1,156 @@
+basePath: /api
+definitions:
+  models.AssetListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/models.AssetResponse'
+        type: array
+      total:
+        type: integer
+    type: object
+  models.AssetResponse:
+    properties:
+      assetCode:
+        type: string
+      assetName:
+        type: string
+      brand:
+        type: string
+      categoryId:
+        type: integer
+      categoryName:
+        type: string
+      createDt:
+        type: string
+      description:
+        type: string
+      id:
+        type: integer
+      location:
+        type: string
+      purchaseDate:
+        type: string
+      serialNumber:
+        type: string
+      status:
+        type: string
+      updateDt:
+        type: string
+      user:
+        type: string
+    type: object
+  models.LoginReq:
+    properties:
+      password:
+        type: string
+      username:
+        type: string
+    required:
+    - password
+    - username
+    type: object
+host: <your-app>.up.railway.app
+info:
+  contact: {}
+  description: IT asset management API. Most routes require a bearer token from /auth/login.
+  title: Inventory Tracker API
+  version: "1.0"
+paths:
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Username and password
+        in: body
+        name: credentials
+        required: true
+        schema:
+          $ref: '#/definitions/models.LoginReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Authenticate and receive a JWT
+      tags:
+      - auth
+  /getAssetList:
+    get:
+      parameters:
+      - default: 1
+        description: Page number
+        in: query
+        name: page
+        type: integer
+      - default: 10
+        description: Items per page
+        in: query
+        name: pageSize
+        type: integer
+      - description: Free-text search on code and name
+        in: query
+        name: search
+        type: string
+      - description: Filter by status
+        in: query
+        name: status
+        type: string
+      - description: Filter by category
+        in: query
+        name: type
+        type: string
+      - default: purchase_date
+        description: Column to sort by
+        in: query
+        name: sortField
+        type: string
+      - default: descend
+        description: ascend or descend
+        in: query
+        name: sortOrder
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.AssetListResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: List assets, paged and filtered
+      tags:
+      - assets
+schemes:
+- https
+securityDefinitions:
+  BearerAuth:
+    description: Type "Bearer " followed by the token returned by /auth/login.
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

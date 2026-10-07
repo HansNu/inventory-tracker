@@ -14,7 +14,23 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	_ "inventory-tracker/docs"
+
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 )
+
+// @title       Inventory Tracker API
+// @version     1.0
+// @description IT asset management API. Most routes require a bearer token from /auth/login.
+// @host        <your-app>.up.railway.app
+// @BasePath    /api
+// @schemes     https
+// @securityDefinitions.apikey BearerAuth
+// @in          header
+// @name        Authorization
+// @description Type "Bearer " followed by the token returned by /auth/login.
 
 func main() {
 	db, err := pgxpool.New(context.Background(), os.Getenv("DATABASE_URL"))
@@ -48,6 +64,8 @@ func main() {
 
 	const api string = "api"
 
+	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+
 	r.GET("/health", func(c *gin.Context) {
 		if err := db.Ping(c.Request.Context()); err != nil {
 			log.Printf("health: db ping failed: %v", err)
@@ -56,6 +74,7 @@ func main() {
 		}
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
+
 	auth := r.Group(api + "/auth")
 	{
 		auth.POST("/register", h.Register)

@@ -1,6 +1,6 @@
 package models
 
 type CategoryGroup struct {
-	Id        int    `jsons:"Id"`
+	Id        int    `json:"Id"`
 	GroupName string `json:"groupName"`
 }

@@ -36,6 +36,20 @@ func (h *Handler) AddAsset(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"message": "Asset added successfully"})
 }
 
+// @Summary  List assets, paged and filtered
+// @Tags     assets
+// @Produce  json
+// @Security BearerAuth
+// @Param    page      query int    false "Page number"              default(1)
+// @Param    pageSize  query int    false "Items per page"           default(10)
+// @Param    search    query string false "Free-text search on code and name"
+// @Param    status    query string false "Filter by status"
+// @Param    type      query string false "Filter by category"
+// @Param    sortField query string false "Column to sort by"        default(purchase_date)
+// @Param    sortOrder query string false "ascend or descend"        default(descend)
+// @Success  200 {object} models.AssetListResponse
+// @Failure  401 {object} map[string]string
+// @Router   /getAssetList [get]
 func (h *Handler) GetAssetList(c *gin.Context) {
 	params := models.AssetListParams{
 		Page:          c.DefaultQuery("page", "1"),
@@ -91,6 +105,18 @@ func (h *Handler) GetAssetByAssetCode(c *gin.Context) {
 
 	c.JSON(http.StatusOK, a)
 }
+
+// @Summary  Update an asset
+// @Tags     assets
+// @Accept   json
+// @Produce  json
+// @Security BearerAuth
+// @Param    id    path int                true "Asset ID"
+// @Param    asset body models.AddAssetReq true "Updated fields"
+// @Success  200 {object} map[string]string
+// @Failure  400 {object} map[string]string
+// @Failure  404 {object} map[string]string
+// @Router   /updateAsset/{id} [put]
 
 func (h *Handler) UpdateAsset(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
