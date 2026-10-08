@@ -2,12 +2,14 @@ package handler
 
 import (
 	"context"
-	"database/sql"
+	"errors"
 	"inventory-tracker/models"
 	"inventory-tracker/utils"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 )
 
 func (h *Handler) Register(c *gin.Context) {
@@ -91,10 +93,11 @@ func (h *Handler) Login(c *gin.Context) {
 		req.Username,
 	).Scan(&user.Id, &user.Name, &user.CategoryGroup, &user.Username, &user.Password)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
 		return
 	} else if err != nil {
+		log.Printf("login: query failed for username=%q: %v", req.Username, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 		return
 	}
@@ -130,12 +133,16 @@ func (h *Handler) GetCurrentUser(c *gin.Context) {
 
 	var user models.Users
 	err := h.DB.QueryRow(context.Background(),
-		"SELECT id, name, category_group, username, created_at FROM users WHERE id=$1",
+		"SELECT id, name, category_group, username FROM users WHERE id=$1",
 		userID,
 	).Scan(&user.Id, &user.Name, &user.CategoryGroup, &user.Username)
 
-	if err != nil {
+	if errors.Is(err, pgx.ErrNoRows) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	} else if err != nil {
+		log.Printf("me: query failed for userID=%v: %v", userID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 		return
 	}
 

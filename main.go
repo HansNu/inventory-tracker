@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"inventory-tracker/handler"
 	"inventory-tracker/middleware"
 	"inventory-tracker/repository"
@@ -24,21 +23,27 @@ import (
 // @title       Inventory Tracker API
 // @version     1.0
 // @description IT asset management API. Most routes require a bearer token from /auth/login.
-// @host        <your-app>.up.railway.app
 // @BasePath    /api
-// @schemes     https
 // @securityDefinitions.apikey BearerAuth
 // @in          header
 // @name        Authorization
 // @description Type "Bearer " followed by the token returned by /auth/login.
 
 func main() {
-	db, err := pgxpool.New(context.Background(), os.Getenv("DATABASE_URL"))
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		log.Fatal("DATABASE_URL is not set")
+	}
+
+	db, err := pgxpool.New(context.Background(), dbURL)
 	if err != nil {
-		fmt.Println("Unable to connect to database:", err)
-		return
+		log.Fatalf("DATABASE_URL is not a valid connection string: %v", err)
 	}
 	defer db.Close()
+
+	if err := db.Ping(context.Background()); err != nil {
+		log.Fatalf("cannot reach database at startup: %v", err)
+	}
 
 	repo := repository.NewAssetRepo(db)
 	svc := service.NewAssetService(repo)

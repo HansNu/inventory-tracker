@@ -50,7 +50,6 @@ definitions:
     - password
     - username
     type: object
-host: <your-app>.up.railway.app
 info:
   contact: {}
   description: IT asset management API. Most routes require a bearer token from /auth/login.
@@ -145,8 +144,6 @@ paths:
       summary: List assets, paged and filtered
       tags:
       - assets
-schemes:
-- https
 securityDefinitions:
   BearerAuth:
     description: Type "Bearer " followed by the token returned by /auth/login.

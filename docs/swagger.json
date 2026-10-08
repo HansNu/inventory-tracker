@@ -1,7 +1,4 @@
 {
-    "schemes": [
-        "https"
-    ],
     "swagger": "2.0",
     "info": {
         "description": "IT asset management API. Most routes require a bearer token from /auth/login.",
@@ -9,7 +6,6 @@
         "contact": {},
         "version": "1.0"
     },
-    "host": "\u003cyour-app\u003e.up.railway.app",
     "basePath": "/api",
     "paths": {
         "/auth/login": {
