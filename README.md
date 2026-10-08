@@ -12,6 +12,7 @@ The Swagger page is interactive: call /auth/login, copy the token, paste it into
 Go 1.26.2 · Gin · PostgreSQL (pgx/v5) · JWT (golang-jwt/v5) · bcrypt · Docker · GitHub Actions · swaggo
 
 **Architecture**
+
 handler/     HTTP only — parse the request, map errors to status codes
    ↓         (service.AssetService)
 services/    business logic — validation, query construction, pagination
@@ -40,6 +41,7 @@ go run .        # listens on $PORT, or :8080
 JWT_SECRET is read at package initialisation and the app panics without it — deliberately, so a missing secret fails loudly at startup instead of silently signing every token with an empty key.
 
 **Health check**
+
 GET /health pings the database and returns 503 if it can't be reached. It deliberately checks the dependency rather than returning 200 for a live process: "running" and "working" are different claims.
 
 **Authentication**
@@ -50,7 +52,7 @@ bash
 curl -X POST https://inventory-tracker-production-a38f.up.railway.app/api/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"username":"admin","password":"secret"}'
-# => {"token":"eyJhbGc...","user":{...}}
+   => {"token":"eyJhbGc...","user":{...}}
 
 curl "https://inventory-tracker-production-a38f.up.railway.app/api/getAssetList?page=1&pageSize=10" \
   -H "Authorization: Bearer eyJhbGc..."
@@ -58,6 +60,7 @@ curl "https://inventory-tracker-production-a38f.up.railway.app/api/getAssetList?
 The token is signed with HS256 and the parser is pinned to that algorithm via jwt.WithValidMethods — without it, a token carrying "alg": "none" would be accepted as valid. There is a test for exactly that.
 
 **Endpoints**
+
 Method	Path	Auth
 GET	/health	—
 POST	/api/auth/register	—
@@ -80,6 +83,7 @@ getAssetList supports page, pageSize, search (across code, name, category, brand
 Endpoint names are verb-style by choice rather than resource-style, so every route has a unique path signature in the logs regardless of method.
 
 **Tests**
+
 bash
 JWT_SECRET=test-secret go test ./... -race
 
