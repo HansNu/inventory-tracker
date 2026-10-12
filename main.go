@@ -13,6 +13,7 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/joho/godotenv"
 
 	_ "inventory-tracker/docs"
 
@@ -30,6 +31,10 @@ import (
 // @description Type "Bearer " followed by the token returned by /auth/login.
 
 func main() {
+	// .env is a convenience for local runs only. In production the variables
+	// come from the platform, so a missing file here is expected, not an error.
+	_ = godotenv.Load()
+
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
 		log.Fatal("DATABASE_URL is not set")
