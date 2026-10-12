@@ -10,6 +10,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// @Summary  List category groups
+// @Tags     category-groups
+// @Produce  json
+// @Router   /getCategoryGroup [get]
 func (h *Handler) GetCategoryGroup(c *gin.Context) {
 	catGroupList, err := h.DB.Query(context.Background(),
 		`select id, group_name from category_group`)
@@ -34,6 +38,12 @@ func (h *Handler) GetCategoryGroup(c *gin.Context) {
 	c.JSON(http.StatusOK, catGroup)
 }
 
+// @Summary  Create a category group
+// @Tags     category-groups
+// @Accept   json
+// @Produce  json
+// @Security BearerAuth
+// @Router   /addCategoryGroup [post]
 func (h *Handler) AddCategoryGroup(c *gin.Context) {
 	var catGroup models.CategoryGroup
 
@@ -54,6 +64,12 @@ func (h *Handler) AddCategoryGroup(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "success"})
 }
 
+// @Summary     Delete a category group
+// @Description Requires the IT role.
+// @Tags        category-groups
+// @Produce     json
+// @Security    BearerAuth
+// @Router      /deleteCategoryGroup [delete]
 func (h *Handler) DeleteCategoryGroupById(c *gin.Context) {
 	var category models.AssetCategory
 

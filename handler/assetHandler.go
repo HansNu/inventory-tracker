@@ -13,6 +13,12 @@ import (
 )
 
 // *  means i get actual data not a copy of the data from the dbcontext
+// @Summary  Create an asset
+// @Tags     assets
+// @Accept   json
+// @Produce  json
+// @Security BearerAuth
+// @Router   /addAsset [post]
 func (h *Handler) AddAsset(c *gin.Context) {
 	var asset models.AddAssetReq
 	if err := c.ShouldBindBodyWithJSON(&asset); err != nil {
@@ -73,6 +79,12 @@ func (h *Handler) GetAssetList(c *gin.Context) {
 	})
 }
 
+// @Summary  Get one asset by its asset code
+// @Tags     assets
+// @Produce  json
+// @Security BearerAuth
+// @Param    assetCode path string true "Asset code"
+// @Router   /getAssetByAssetCode/{assetCode} [get]
 func (h *Handler) GetAssetByAssetCode(c *gin.Context) {
 	assetCode := c.Param("assetCode")
 	if assetCode == "" {
@@ -146,6 +158,12 @@ func (h *Handler) UpdateAsset(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Asset Updated Successfully"}) //sprintf returns a usable string like a variable
 }
 
+// @Summary  Delete an asset by its asset code
+// @Tags     assets
+// @Produce  json
+// @Security BearerAuth
+// @Param    assetCode path string true "Asset code"
+// @Router   /deleteAssetByAssetCode/{assetCode} [delete]
 func (h *Handler) DeleteAssetByAssetCode(c *gin.Context) {
 	assetCode := c.Param("assetCode")
 	if assetCode == "" {

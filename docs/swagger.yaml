@@ -40,57 +40,137 @@ definitions:
       user:
         type: string
     type: object
-  models.LoginReq:
-    properties:
-      password:
-        type: string
-      username:
-        type: string
-    required:
-    - password
-    - username
-    type: object
 info:
   contact: {}
   description: IT asset management API. Most routes require a bearer token from /auth/login.
   title: Inventory Tracker API
   version: "1.0"
 paths:
+  /addAsset:
+    post:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Create an asset
+      tags:
+      - assets
+  /addAssetCategory:
+    post:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Create an asset category
+      tags:
+      - categories
+  /addCategoryGroup:
+    post:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Create a category group
+      tags:
+      - category-groups
   /auth/login:
     post:
       consumes:
       - application/json
-      parameters:
-      - description: Username and password
-        in: body
-        name: credentials
-        required: true
-        schema:
-          $ref: '#/definitions/models.LoginReq'
       produces:
       - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Authenticate and receive a JWT
+      responses: {}
+      summary: Log in and receive a JWT
       tags:
       - auth
+  /auth/register:
+    post:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses: {}
+      summary: Register a new user
+      tags:
+      - auth
+  /deleteAssetByAssetCode/{assetCode}:
+    delete:
+      parameters:
+      - description: Asset code
+        in: path
+        name: assetCode
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Delete an asset by its asset code
+      tags:
+      - assets
+  /deleteAssetCategoryById/{id}:
+    delete:
+      parameters:
+      - description: Category ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Delete an asset category
+      tags:
+      - categories
+  /deleteCategoryGroup:
+    delete:
+      description: Requires the IT role.
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Delete a category group
+      tags:
+      - category-groups
+  /getAssetByAssetCode/{assetCode}:
+    get:
+      parameters:
+      - description: Asset code
+        in: path
+        name: assetCode
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Get one asset by its asset code
+      tags:
+      - assets
+  /getAssetCategoryList:
+    get:
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: List asset categories
+      tags:
+      - categories
   /getAssetList:
     get:
       parameters:
@@ -144,6 +224,24 @@ paths:
       summary: List assets, paged and filtered
       tags:
       - assets
+  /getCategoryGroup:
+    get:
+      produces:
+      - application/json
+      responses: {}
+      summary: List category groups
+      tags:
+      - category-groups
+  /me:
+    get:
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: Get the authenticated user
+      tags:
+      - auth
 securityDefinitions:
   BearerAuth:
     description: Type "Bearer " followed by the token returned by /auth/login.

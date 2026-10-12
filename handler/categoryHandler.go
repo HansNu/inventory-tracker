@@ -10,6 +10,11 @@ import (
 	"inventory-tracker/models"
 )
 
+// @Summary  List asset categories
+// @Tags     categories
+// @Produce  json
+// @Security BearerAuth
+// @Router   /getAssetCategoryList [get]
 func (h *Handler) GetAssetCategoryList(c *gin.Context) {
 	//in go assetList here represents direct connection to database, it doesnt work like models in JS/.NET
 	assetCategoryList, err := h.DB.Query(context.Background(),
@@ -36,6 +41,12 @@ func (h *Handler) GetAssetCategoryList(c *gin.Context) {
 	c.JSON(http.StatusOK, assetCategory)
 }
 
+// @Summary  Create an asset category
+// @Tags     categories
+// @Accept   json
+// @Produce  json
+// @Security BearerAuth
+// @Router   /addAssetCategory [post]
 func (h *Handler) AddAssetCategory(c *gin.Context) {
 	var category models.AssetCategory
 
@@ -57,6 +68,12 @@ func (h *Handler) AddAssetCategory(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"message": "Category Added Successfully"})
 }
 
+// @Summary  Delete an asset category
+// @Tags     categories
+// @Produce  json
+// @Security BearerAuth
+// @Param    id path int true "Category ID"
+// @Router   /deleteAssetCategoryById/{id} [delete]
 func (h *Handler) DeleteAssetCategoryById(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("id"))
 	if id == 0 {

@@ -12,6 +12,11 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// @Summary  Register a new user
+// @Tags     auth
+// @Accept   json
+// @Produce  json
+// @Router  /auth/register [post]
 func (h *Handler) Register(c *gin.Context) {
 	var req models.RegisterReq
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -71,14 +76,10 @@ func (h *Handler) Register(c *gin.Context) {
 	})
 }
 
-// @Summary  Authenticate and receive a JWT
+// @Summary  Log in and receive a JWT
 // @Tags     auth
 // @Accept   json
 // @Produce  json
-// @Param    credentials body models.LoginReq true "Username and password"
-// @Success  200 {object} map[string]string
-// @Failure  400 {object} map[string]string
-// @Failure  401 {object} map[string]string
 // @Router   /auth/login [post]
 func (h *Handler) Login(c *gin.Context) {
 	var req models.LoginReq
@@ -124,6 +125,11 @@ func (h *Handler) Login(c *gin.Context) {
 	})
 }
 
+// @Summary  Get the authenticated user
+// @Tags     auth
+// @Produce  json
+// @Security BearerAuth
+// @Router   /me [get]
 func (h *Handler) GetCurrentUser(c *gin.Context) {
 	userID, exists := c.Get("userID")
 	if !exists {

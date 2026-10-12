@@ -15,6 +15,66 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/addAsset": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "assets"
+                ],
+                "summary": "Create an asset",
+                "responses": {}
+            }
+        },
+        "/addAssetCategory": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "categories"
+                ],
+                "summary": "Create an asset category",
+                "responses": {}
+            }
+        },
+        "/addCategoryGroup": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "category-groups"
+                ],
+                "summary": "Create a category group",
+                "responses": {}
+            }
+        },
         "/auth/login": {
             "post": {
                 "consumes": [
@@ -26,47 +86,136 @@ const docTemplate = `{
                 "tags": [
                     "auth"
                 ],
-                "summary": "Authenticate and receive a JWT",
-                "parameters": [
+                "summary": "Log in and receive a JWT",
+                "responses": {}
+            }
+        },
+        "/auth/register": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Register a new user",
+                "responses": {}
+            }
+        },
+        "/deleteAssetByAssetCode/{assetCode}": {
+            "delete": {
+                "security": [
                     {
-                        "description": "Username and password",
-                        "name": "credentials",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/models.LoginReq"
-                        }
+                        "BearerAuth": []
                     }
                 ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "assets"
+                ],
+                "summary": "Delete an asset by its asset code",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset code",
+                        "name": "assetCode",
+                        "in": "path",
+                        "required": true
                     }
-                }
+                ],
+                "responses": {}
+            }
+        },
+        "/deleteAssetCategoryById/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "categories"
+                ],
+                "summary": "Delete an asset category",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Category ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {}
+            }
+        },
+        "/deleteCategoryGroup": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Requires the IT role.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "category-groups"
+                ],
+                "summary": "Delete a category group",
+                "responses": {}
+            }
+        },
+        "/getAssetByAssetCode/{assetCode}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "assets"
+                ],
+                "summary": "Get one asset by its asset code",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Asset code",
+                        "name": "assetCode",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {}
+            }
+        },
+        "/getAssetCategoryList": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "categories"
+                ],
+                "summary": "List asset categories",
+                "responses": {}
             }
         },
         "/getAssetList": {
@@ -149,6 +298,35 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/getCategoryGroup": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "category-groups"
+                ],
+                "summary": "List category groups",
+                "responses": {}
+            }
+        },
+        "/me": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Get the authenticated user",
+                "responses": {}
+            }
         }
     },
     "definitions": {
@@ -209,21 +387,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "user": {
-                    "type": "string"
-                }
-            }
-        },
-        "models.LoginReq": {
-            "type": "object",
-            "required": [
-                "password",
-                "username"
-            ],
-            "properties": {
-                "password": {
-                    "type": "string"
-                },
-                "username": {
                     "type": "string"
                 }
             }
