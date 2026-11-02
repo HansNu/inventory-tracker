@@ -1,71 +1,32 @@
 package handler
 
 import (
-	"context"
-	"errors"
-	"inventory-tracker/models"
-	"inventory-tracker/utils"
-	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5"
+
+	"inventory-tracker/models"
 )
 
-// @Summary  Register a new user
+// @Summary  Register a new user and receive a JWT
 // @Tags     auth
 // @Accept   json
 // @Produce  json
-// @Router  /auth/register [post]
+// @Param    user body models.RegisterReq true "New user"
+// @Success  201 {object} map[string]interface{}
+// @Failure  400 {object} map[string]string
+// @Failure  409 {object} map[string]string
+// @Router   /auth/register [post]
 func (h *Handler) Register(c *gin.Context) {
 	var req models.RegisterReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, err)
 		return
 	}
 
-	// Check if username already exists
-	var exists bool
-	err := h.DB.QueryRow(context.Background(),
-		"SELECT EXISTS(SELECT 1 FROM users WHERE username=$1)",
-		req.Username,
-	).Scan(&exists)
-
+	user, token, err := h.Auth.Register(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	if exists {
-		c.JSON(http.StatusConflict, gin.H{"error": "Username already exists"})
-		return
-	}
-
-	// Hash password
-	hashedPassword, err := utils.HashPassword(req.Password)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
-		return
-	}
-
-	// Insert user
-	var user models.Users
-	err = h.DB.QueryRow(context.Background(),
-		`INSERT INTO users (name, category_group, username, password) 
-         VALUES ($1, $2, $3, $4) 
-         RETURNING id, name, category_group, username`,
-		req.Name, req.CategoryGroup, req.Username, hashedPassword,
-	).Scan(&user.Id, &user.Name, &user.CategoryGroup, &user.Username)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
-		return
-	}
-
-	// Generate token
-	token, err := utils.GenerateToken(user.Id, user.CategoryGroup)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+		respondError(c, err)
 		return
 	}
 
@@ -76,79 +37,59 @@ func (h *Handler) Register(c *gin.Context) {
 	})
 }
 
-// @Summary  Log in and receive a JWT
+// @Summary  Authenticate and receive a JWT
 // @Tags     auth
 // @Accept   json
 // @Produce  json
+// @Param    credentials body models.LoginReq true "Username and password"
+// @Success  200 {object} map[string]interface{}
+// @Failure  400 {object} map[string]string
+// @Failure  401 {object} map[string]string
 // @Router   /auth/login [post]
 func (h *Handler) Login(c *gin.Context) {
 	var req models.LoginReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, err)
 		return
 	}
 
-	var user models.Users
-	err := h.DB.QueryRow(context.Background(),
-		"SELECT id, name, category_group, username, password FROM users WHERE username=$1",
-		req.Username,
-	).Scan(&user.Id, &user.Name, &user.CategoryGroup, &user.Username, &user.Password)
-
-	if errors.Is(err, pgx.ErrNoRows) {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
-		return
-	} else if err != nil {
-		log.Printf("login: query failed for username=%q: %v", req.Username, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
-		return
-	}
-
-	// Check password
-	if !utils.CheckPasswordHash(req.Password, user.Password) {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
-		return
-	}
-
-	// Generate token
-	token, err := utils.GenerateToken(user.Id, user.CategoryGroup)
+	user, token, err := h.Auth.Login(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+		respondError(c, err)
 		return
 	}
 
-	// Don't send password back
-	user.Password = ""
-
-	c.JSON(http.StatusOK, gin.H{
-		"token": token,
-		"user":  user,
-	})
+	c.JSON(http.StatusOK, gin.H{"token": token, "user": user})
 }
 
-// @Summary  Get the authenticated user
+// @Summary  Return the authenticated user
 // @Tags     auth
 // @Produce  json
 // @Security BearerAuth
+// @Success  200 {object} models.Users
+// @Failure  401 {object} map[string]string
+// @Failure  404 {object} map[string]string
 // @Router   /me [get]
 func (h *Handler) GetCurrentUser(c *gin.Context) {
-	userID, exists := c.Get("userID")
+	// The id comes from the verified token via AuthMiddleware, never from the
+	// request. A client may say what it wants done; it may not say who it is.
+	value, exists := c.Get("userID")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
 		return
 	}
 
-	var user models.Users
-	err := h.DB.QueryRow(context.Background(),
-		"SELECT id, name, category_group, username FROM users WHERE id=$1",
-		userID,
-	).Scan(&user.Id, &user.Name, &user.CategoryGroup, &user.Username)
-
-	if errors.Is(err, pgx.ErrNoRows) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+	userID, ok := value.(int)
+	if !ok {
+		// Two-value assertion: the single-value form panics on a type mismatch,
+		// which turns a wiring bug into a crashed request.
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
 		return
-	} else if err != nil {
-		log.Printf("me: query failed for userID=%v: %v", userID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+	}
+
+	user, err := h.Auth.CurrentUser(c.Request.Context(), userID)
+	if err != nil {
+		respondError(c, err)
 		return
 	}
 

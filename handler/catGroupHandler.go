@@ -1,41 +1,26 @@
 package handler
 
 import (
-	"context"
 	"net/http"
-
-	"fmt"
-	"inventory-tracker/models"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
+
+	"inventory-tracker/models"
 )
 
 // @Summary  List category groups
 // @Tags     category-groups
 // @Produce  json
+// @Success  200 {array} models.CategoryGroup
 // @Router   /getCategoryGroup [get]
 func (h *Handler) GetCategoryGroup(c *gin.Context) {
-	catGroupList, err := h.DB.Query(context.Background(),
-		`select id, group_name from category_group`)
-
+	groups, err := h.CategoryGroups.List(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondError(c, err)
 		return
 	}
-
-	var catGroup []models.CategoryGroup
-	for catGroupList.Next() {
-		var a models.CategoryGroup
-		err := catGroupList.Scan(&a.Id, &a.GroupName)
-
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		catGroup = append(catGroup, a)
-	}
-
-	c.JSON(http.StatusOK, catGroup)
+	c.JSON(http.StatusOK, groups)
 }
 
 // @Summary  Create a category group
@@ -43,48 +28,50 @@ func (h *Handler) GetCategoryGroup(c *gin.Context) {
 // @Accept   json
 // @Produce  json
 // @Security BearerAuth
+// @Param    group body models.CategoryGroup true "Group to create"
+// @Success  201 {object} map[string]string
+// @Failure  400 {object} map[string]string
+// @Failure  409 {object} map[string]string
 // @Router   /addCategoryGroup [post]
 func (h *Handler) AddCategoryGroup(c *gin.Context) {
-	var catGroup models.CategoryGroup
-
-	if err := c.ShouldBindBodyWithJSON(&catGroup); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	var group models.CategoryGroup
+	if err := c.ShouldBindJSON(&group); err != nil {
+		badRequest(c, err)
 		return
 	}
 
-	_, err := h.DB.Exec(context.Background(),
-		`INSERT into category_group (group_name)
-		VALUES ($1)`, catGroup.GroupName)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	if err := h.CategoryGroups.Create(c.Request.Context(), group); err != nil {
+		respondError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "success"})
+	c.JSON(http.StatusCreated, gin.H{"message": "Category group added successfully"})
 }
 
 // @Summary     Delete a category group
-// @Description Requires the IT role.
+// @Description Requires the IT role. A group still referenced by categories returns 409.
 // @Tags        category-groups
 // @Produce     json
 // @Security    BearerAuth
-// @Router      /deleteCategoryGroup [delete]
+// @Param       id path int true "Category group ID"
+// @Success     200 {object} map[string]string
+// @Failure     400 {object} map[string]string
+// @Failure     404 {object} map[string]string
+// @Failure     409 {object} map[string]string
+// @Router      /deleteCategoryGroup/{id} [delete]
 func (h *Handler) DeleteCategoryGroupById(c *gin.Context) {
-	var category models.AssetCategory
-
-	if err := c.ShouldBindBodyWithJSON(&category); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	// The identifier moved from the request body into the path. DELETE with a
+	// body has no defined meaning in HTTP and proxies are free to strip it.
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be a positive integer"})
 		return
 	}
 
-	_, err := h.DB.Exec(context.Background(),
-		`DELETE FROM category_group where id = $1`, category.Id)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	if err := h.CategoryGroups.DeleteByID(c.Request.Context(), id); err != nil {
+		respondError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("%s Deleted Successfully", category.CategoryName)})
+	c.JSON(http.StatusOK, gin.H{"message": "Category group deleted successfully"})
 }

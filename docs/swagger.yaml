@@ -1,5 +1,48 @@
 basePath: /api
 definitions:
+  models.AddAssetReq:
+    properties:
+      assetCode:
+        type: string
+      assetName:
+        type: string
+      brand:
+        type: string
+      categoryId:
+        type: integer
+      description:
+        type: string
+      id:
+        type: integer
+      location:
+        type: string
+      purchaseDate:
+        type: string
+      serialNumber:
+        type: string
+      status:
+        type: string
+      user:
+        type: string
+    required:
+    - assetCode
+    - assetName
+    - categoryId
+    - location
+    - status
+    type: object
+  models.AssetCategory:
+    properties:
+      categoryGroup:
+        type: string
+      categoryName:
+        type: string
+      id:
+        type: integer
+    required:
+    - categoryGroup
+    - categoryName
+    type: object
   models.AssetListResponse:
     properties:
       data:
@@ -40,6 +83,52 @@ definitions:
       user:
         type: string
     type: object
+  models.CategoryGroup:
+    properties:
+      Id:
+        type: integer
+      groupName:
+        type: string
+    required:
+    - groupName
+    type: object
+  models.LoginReq:
+    properties:
+      password:
+        type: string
+      username:
+        type: string
+    required:
+    - password
+    - username
+    type: object
+  models.RegisterReq:
+    properties:
+      categoryGroup:
+        type: string
+      name:
+        type: string
+      password:
+        type: string
+      username:
+        type: string
+    required:
+    - categoryGroup
+    - name
+    - password
+    - username
+    type: object
+  models.Users:
+    properties:
+      categoryGroup:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+      username:
+        type: string
+    type: object
 info:
   contact: {}
   description: IT asset management API. Most routes require a bearer token from /auth/login.
@@ -50,9 +139,34 @@ paths:
     post:
       consumes:
       - application/json
+      parameters:
+      - description: Asset to create
+        in: body
+        name: asset
+        required: true
+        schema:
+          $ref: '#/definitions/models.AddAssetReq'
       produces:
       - application/json
-      responses: {}
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
       security:
       - BearerAuth: []
       summary: Create an asset
@@ -62,9 +176,34 @@ paths:
     post:
       consumes:
       - application/json
+      parameters:
+      - description: Category to create
+        in: body
+        name: category
+        required: true
+        schema:
+          $ref: '#/definitions/models.AssetCategory'
       produces:
       - application/json
-      responses: {}
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
       security:
       - BearerAuth: []
       summary: Create an asset category
@@ -74,9 +213,34 @@ paths:
     post:
       consumes:
       - application/json
+      parameters:
+      - description: Group to create
+        in: body
+        name: group
+        required: true
+        schema:
+          $ref: '#/definitions/models.CategoryGroup'
       produces:
       - application/json
-      responses: {}
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
       security:
       - BearerAuth: []
       summary: Create a category group
@@ -86,20 +250,68 @@ paths:
     post:
       consumes:
       - application/json
+      parameters:
+      - description: Username and password
+        in: body
+        name: credentials
+        required: true
+        schema:
+          $ref: '#/definitions/models.LoginReq'
       produces:
       - application/json
-      responses: {}
-      summary: Log in and receive a JWT
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Authenticate and receive a JWT
       tags:
       - auth
   /auth/register:
     post:
       consumes:
       - application/json
+      parameters:
+      - description: New user
+        in: body
+        name: user
+        required: true
+        schema:
+          $ref: '#/definitions/models.RegisterReq'
       produces:
       - application/json
-      responses: {}
-      summary: Register a new user
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Register a new user and receive a JWT
       tags:
       - auth
   /deleteAssetByAssetCode/{assetCode}:
@@ -112,7 +324,19 @@ paths:
         type: string
       produces:
       - application/json
-      responses: {}
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
       security:
       - BearerAuth: []
       summary: Delete an asset by its asset code
@@ -128,18 +352,67 @@ paths:
         type: integer
       produces:
       - application/json
-      responses: {}
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
       security:
       - BearerAuth: []
       summary: Delete an asset category
       tags:
       - categories
-  /deleteCategoryGroup:
+  /deleteCategoryGroup/{id}:
     delete:
-      description: Requires the IT role.
+      description: Requires the IT role. A group still referenced by categories returns
+        409.
+      parameters:
+      - description: Category group ID
+        in: path
+        name: id
+        required: true
+        type: integer
       produces:
       - application/json
-      responses: {}
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
       security:
       - BearerAuth: []
       summary: Delete a category group
@@ -155,7 +428,17 @@ paths:
         type: string
       produces:
       - application/json
-      responses: {}
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.AssetResponse'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
       security:
       - BearerAuth: []
       summary: Get one asset by its asset code
@@ -165,7 +448,13 @@ paths:
     get:
       produces:
       - application/json
-      responses: {}
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.AssetCategory'
+            type: array
       security:
       - BearerAuth: []
       summary: List asset categories
@@ -180,11 +469,11 @@ paths:
         name: page
         type: integer
       - default: 10
-        description: Items per page
+        description: Items per page (max 100)
         in: query
         name: pageSize
         type: integer
-      - description: Free-text search on code and name
+      - description: Free-text search across asset fields
         in: query
         name: search
         type: string
@@ -192,7 +481,7 @@ paths:
         in: query
         name: status
         type: string
-      - description: Filter by category
+      - description: Filter by category name
         in: query
         name: type
         type: string
@@ -213,6 +502,12 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/models.AssetListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
         "401":
           description: Unauthorized
           schema:
@@ -228,7 +523,13 @@ paths:
     get:
       produces:
       - application/json
-      responses: {}
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.CategoryGroup'
+            type: array
       summary: List category groups
       tags:
       - category-groups
@@ -236,12 +537,70 @@ paths:
     get:
       produces:
       - application/json
-      responses: {}
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Users'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
       security:
       - BearerAuth: []
-      summary: Get the authenticated user
+      summary: Return the authenticated user
       tags:
       - auth
+  /updateAsset/{id}:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Updated fields
+        in: body
+        name: asset
+        required: true
+        schema:
+          $ref: '#/definitions/models.AddAssetReq'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Update an asset
+      tags:
+      - assets
 securityDefinitions:
   BearerAuth:
     description: Type "Bearer " followed by the token returned by /auth/login.
