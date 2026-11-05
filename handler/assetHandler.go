@@ -1,41 +1,34 @@
 package handler
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 
 	"inventory-tracker/models"
 )
 
-// *  means i get actual data not a copy of the data from the dbcontext
 // @Summary  Create an asset
 // @Tags     assets
 // @Accept   json
 // @Produce  json
 // @Security BearerAuth
+// @Param    asset body models.AddAssetReq true "Asset to create"
+// @Success  201 {object} map[string]string
+// @Failure  400 {object} map[string]string
+// @Failure  409 {object} map[string]string
 // @Router   /addAsset [post]
 func (h *Handler) AddAsset(c *gin.Context) {
 	var asset models.AddAssetReq
-	if err := c.ShouldBindBodyWithJSON(&asset); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		fmt.Printf("[handler] parsed asset: %+v\n", asset)
+	if err := c.ShouldBindJSON(&asset); err != nil {
+		badRequest(c, err)
 		return
 	}
 
-	err := h.Service.AddAsset(context.Background(), asset)
-	fmt.Println("[handler] service call returned, err =", err)
-
-	if err != nil {
-		if strings.Contains(err.Error(), "unique constraint") {
-			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	if err := h.Service.AddAsset(c.Request.Context(), asset); err != nil {
+		respondError(c, err)
 		return
 	}
 
@@ -46,14 +39,15 @@ func (h *Handler) AddAsset(c *gin.Context) {
 // @Tags     assets
 // @Produce  json
 // @Security BearerAuth
-// @Param    page      query int    false "Page number"              default(1)
-// @Param    pageSize  query int    false "Items per page"           default(10)
-// @Param    search    query string false "Free-text search on code and name"
+// @Param    page      query int    false "Page number"                        default(1)
+// @Param    pageSize  query int    false "Items per page (max 100)"           default(10)
+// @Param    search    query string false "Free-text search across asset fields"
 // @Param    status    query string false "Filter by status"
-// @Param    type      query string false "Filter by category"
-// @Param    sortField query string false "Column to sort by"        default(purchase_date)
-// @Param    sortOrder query string false "ascend or descend"        default(descend)
+// @Param    type      query string false "Filter by category name"
+// @Param    sortField query string false "Column to sort by"                  default(purchase_date)
+// @Param    sortOrder query string false "ascend or descend"                  default(descend)
 // @Success  200 {object} models.AssetListResponse
+// @Failure  400 {object} map[string]string
 // @Failure  401 {object} map[string]string
 // @Router   /getAssetList [get]
 func (h *Handler) GetAssetList(c *gin.Context) {
@@ -69,14 +63,11 @@ func (h *Handler) GetAssetList(c *gin.Context) {
 
 	assets, total, err := h.Service.GetAssetList(c.Request.Context(), params)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, models.AssetListResponse{
-		Data:  assets,
-		Total: total,
-	})
+	c.JSON(http.StatusOK, models.AssetListResponse{Data: assets, Total: total})
 }
 
 // @Summary  Get one asset by its asset code
@@ -84,38 +75,23 @@ func (h *Handler) GetAssetList(c *gin.Context) {
 // @Produce  json
 // @Security BearerAuth
 // @Param    assetCode path string true "Asset code"
+// @Success  200 {object} models.AssetResponse
+// @Failure  404 {object} map[string]string
 // @Router   /getAssetByAssetCode/{assetCode} [get]
 func (h *Handler) GetAssetByAssetCode(c *gin.Context) {
 	assetCode := c.Param("assetCode")
 	if assetCode == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "asset_code is required"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "assetCode is required"})
 		return
 	}
 
-	result, err := h.DB.Query(context.Background(),
-		`Select a.id, a.asset_code, a.asset_name, a.category_id, c.category_name, a.brand, a.serial_number, a.status, a.location, a."user", a.purchase_date, a.description 
-     			from asset a
-				join category c on c.id = a.category_id
-				where asset_code = $1`, assetCode)
-
+	asset, err := h.Service.GetAssetByCode(c.Request.Context(), assetCode)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	defer result.Close()
-
-	var a models.AssetResponse
-	if !result.Next() {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Asset not found"})
+		respondError(c, err)
 		return
 	}
 
-	if err := result.Scan(&a.Id, &a.AssetCode, &a.AssetName, &a.CategoryId, &a.CategoryName, &a.Brand, &a.SerialNumber, &a.Status, &a.Location, &a.User, &a.PurchaseDate, &a.Description); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, a)
+	c.JSON(http.StatusOK, asset)
 }
 
 // @Summary  Update an asset
@@ -129,33 +105,27 @@ func (h *Handler) GetAssetByAssetCode(c *gin.Context) {
 // @Failure  400 {object} map[string]string
 // @Failure  404 {object} map[string]string
 // @Router   /updateAsset/{id} [put]
-
 func (h *Handler) UpdateAsset(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
+	// c.Param returns a string. A non-numeric id is the caller's mistake, so it
+	// is a 400 — discarding this error turns it into a confusing 404 instead.
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be a positive integer"})
+		return
+	}
+
 	var asset models.AddAssetReq
-
-	if err := c.ShouldBindBodyWithJSON(&asset); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if err := c.ShouldBindJSON(&asset); err != nil {
+		badRequest(c, err)
 		return
 	}
 
-	result, err := h.DB.Exec(context.Background(),
-		`UPDATE asset SET asset_code = $1, asset_name = $2, brand = $3, serial_number = $4, category_id = $5, status = $6, location = $7, "user" = $8, purchase_date = $9, description = $10 WHERE id = $11`,
-		asset.AssetCode, asset.AssetName, asset.Brand, asset.SerialNumber,
-		asset.CategoryId, asset.Status, asset.Location, asset.User,
-		asset.PurchaseDate, asset.Description, id)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	if err := h.Service.UpdateAsset(c.Request.Context(), id, asset); err != nil {
+		respondError(c, err)
 		return
 	}
 
-	if result.RowsAffected() == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Asset Id %d not found", id)})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "Asset Updated Successfully"}) //sprintf returns a usable string like a variable
+	c.JSON(http.StatusOK, gin.H{"message": "Asset updated successfully"})
 }
 
 // @Summary  Delete an asset by its asset code
@@ -163,21 +133,20 @@ func (h *Handler) UpdateAsset(c *gin.Context) {
 // @Produce  json
 // @Security BearerAuth
 // @Param    assetCode path string true "Asset code"
+// @Success  200 {object} map[string]string
+// @Failure  404 {object} map[string]string
 // @Router   /deleteAssetByAssetCode/{assetCode} [delete]
 func (h *Handler) DeleteAssetByAssetCode(c *gin.Context) {
 	assetCode := c.Param("assetCode")
 	if assetCode == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "asset_code is required"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "assetCode is required"})
 		return
 	}
 
-	_, err := h.DB.Exec(context.Background(),
-		`DELETE FROM asset where asset_code = $1`, assetCode)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	if err := h.Service.DeleteAssetByCode(c.Request.Context(), assetCode); err != nil {
+		respondError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("%s Deleted Successfully", assetCode)})
+	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("%s deleted successfully", assetCode)})
 }

@@ -1,0 +1,1833 @@
+diff --git a/apperr/errors.go b/apperr/errors.go
+new file mode 100644
+index 0000000..866f6f2
+--- /dev/null
++++ b/apperr/errors.go
+@@ -0,0 +1,17 @@
++// Package apperr holds the domain errors shared by every layer.
++//
++// It exists so that the repository can translate storage-specific failures
++// (pgx sentinels, Postgres error codes) into something the service and handler
++// layers can reason about without importing a database driver. Nothing in here
++// knows about HTTP or SQL.
++package apperr
++
++import "errors"
++
++var (
++	ErrNotFound           = errors.New("resource not found")
++	ErrDuplicate          = errors.New("resource already exists")
++	ErrReferenced         = errors.New("resource is still referenced by other records")
++	ErrInvalidCredentials = errors.New("invalid credentials")
++	ErrInvalidSortField   = errors.New("invalid sort field")
++)
+diff --git a/handler/Handler.go b/handler/Handler.go
+index 1e5c561..753a36a 100644
+--- a/handler/Handler.go
++++ b/handler/Handler.go
+@@ -1,24 +1,26 @@
+ package handler
+ 
+ import (
+-	"context"
+ 	"inventory-tracker/repository"
+ 	service "inventory-tracker/services"
+-
+-	"github.com/jackc/pgx/v5"
+-	"github.com/jackc/pgx/v5/pgconn"
+-	"github.com/jackc/pgx/v5/pgxpool"
+ )
+ 
+-type DBTX interface {
+-	Close()
+-	Exec(ctx context.Context, sql string, args ...interface{}) (pgconn.CommandTag, error)
+-	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
+-	QueryRow(ctx context.Context, sql string, args ...interface{}) pgx.Row
+-}
+-
++// Handler holds every boundary this package is allowed to call.
++//
++// Assets and auth go through services, because both carry rules worth keeping
++// out of HTTP code — pagination and sort normalisation for one, uniqueness,
++// hashing and token issuance for the other.
++//
++// Categories and category groups go straight to their repositories. They are
++// pure CRUD with no rules to protect, and a service that only forwards a call is
++// an extra hop pretending to be a boundary. The moment a rule appears there, a
++// service is where it goes.
++//
++// There is deliberately no *pgxpool.Pool here. No handler in this package can
++// reach a database except through one of these four fields.
+ type Handler struct {
+-	DB      *pgxpool.Pool   //FOR DB HITS
+-	DBT     repository.DBTX //FOR DB TESTING
+-	Service service.AssetService
++	Service        service.AssetService
++	Auth           service.AuthService
++	Categories     repository.CategoryRepository
++	CategoryGroups repository.CategoryGroupRepository
+ }
+diff --git a/handler/assetHandler.go b/handler/assetHandler.go
+index ac5c88c..fc25b4e 100644
+--- a/handler/assetHandler.go
++++ b/handler/assetHandler.go
+@@ -1,41 +1,34 @@
+ package handler
+ 
+ import (
+-	"context"
+ 	"fmt"
+ 	"net/http"
+ 	"strconv"
+-	"strings"
+ 
+ 	"github.com/gin-gonic/gin"
+ 
+ 	"inventory-tracker/models"
+ )
+ 
+-// *  means i get actual data not a copy of the data from the dbcontext
+ // @Summary  Create an asset
+ // @Tags     assets
+ // @Accept   json
+ // @Produce  json
+ // @Security BearerAuth
++// @Param    asset body models.AddAssetReq true "Asset to create"
++// @Success  201 {object} map[string]string
++// @Failure  400 {object} map[string]string
++// @Failure  409 {object} map[string]string
+ // @Router   /addAsset [post]
+ func (h *Handler) AddAsset(c *gin.Context) {
+ 	var asset models.AddAssetReq
+-	if err := c.ShouldBindBodyWithJSON(&asset); err != nil {
+-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+-		fmt.Printf("[handler] parsed asset: %+v\n", asset)
++	if err := c.ShouldBindJSON(&asset); err != nil {
++		badRequest(c, err)
+ 		return
+ 	}
+ 
+-	err := h.Service.AddAsset(context.Background(), asset)
+-	fmt.Println("[handler] service call returned, err =", err)
+-
+-	if err != nil {
+-		if strings.Contains(err.Error(), "unique constraint") {
+-			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+-			return
+-		}
+-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
++	if err := h.Service.AddAsset(c.Request.Context(), asset); err != nil {
++		respondError(c, err)
+ 		return
+ 	}
+ 
+@@ -46,14 +39,15 @@ func (h *Handler) AddAsset(c *gin.Context) {
+ // @Tags     assets
+ // @Produce  json
+ // @Security BearerAuth
+-// @Param    page      query int    false "Page number"              default(1)
+-// @Param    pageSize  query int    false "Items per page"           default(10)
+-// @Param    search    query string false "Free-text search on code and name"
++// @Param    page      query int    false "Page number"                        default(1)
++// @Param    pageSize  query int    false "Items per page (max 100)"           default(10)
++// @Param    search    query string false "Free-text search across asset fields"
+ // @Param    status    query string false "Filter by status"
+-// @Param    type      query string false "Filter by category"
+-// @Param    sortField query string false "Column to sort by"        default(purchase_date)
+-// @Param    sortOrder query string false "ascend or descend"        default(descend)
++// @Param    type      query string false "Filter by category name"
++// @Param    sortField query string false "Column to sort by"                  default(purchase_date)
++// @Param    sortOrder query string false "ascend or descend"                  default(descend)
+ // @Success  200 {object} models.AssetListResponse
++// @Failure  400 {object} map[string]string
+ // @Failure  401 {object} map[string]string
+ // @Router   /getAssetList [get]
+ func (h *Handler) GetAssetList(c *gin.Context) {
+@@ -69,14 +63,11 @@ func (h *Handler) GetAssetList(c *gin.Context) {
+ 
+ 	assets, total, err := h.Service.GetAssetList(c.Request.Context(), params)
+ 	if err != nil {
+-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
++		respondError(c, err)
+ 		return
+ 	}
+ 
+-	c.JSON(http.StatusOK, models.AssetListResponse{
+-		Data:  assets,
+-		Total: total,
+-	})
++	c.JSON(http.StatusOK, models.AssetListResponse{Data: assets, Total: total})
+ }
+ 
+ // @Summary  Get one asset by its asset code
+@@ -84,38 +75,23 @@ func (h *Handler) GetAssetList(c *gin.Context) {
+ // @Produce  json
+ // @Security BearerAuth
+ // @Param    assetCode path string true "Asset code"
++// @Success  200 {object} models.AssetResponse
++// @Failure  404 {object} map[string]string
+ // @Router   /getAssetByAssetCode/{assetCode} [get]
+ func (h *Handler) GetAssetByAssetCode(c *gin.Context) {
+ 	assetCode := c.Param("assetCode")
+ 	if assetCode == "" {
+-		c.JSON(http.StatusBadRequest, gin.H{"error": "asset_code is required"})
++		c.JSON(http.StatusBadRequest, gin.H{"error": "assetCode is required"})
+ 		return
+ 	}
+ 
+-	result, err := h.DB.Query(context.Background(),
+-		`Select a.id, a.asset_code, a.asset_name, a.category_id, c.category_name, a.brand, a.serial_number, a.status, a.location, a."user", a.purchase_date, a.description 
+-     			from asset a
+-				join category c on c.id = a.category_id
+-				where asset_code = $1`, assetCode)
+-
++	asset, err := h.Service.GetAssetByCode(c.Request.Context(), assetCode)
+ 	if err != nil {
+-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+-		return
+-	}
+-	defer result.Close()
+-
+-	var a models.AssetResponse
+-	if !result.Next() {
+-		c.JSON(http.StatusNotFound, gin.H{"error": "Asset not found"})
+-		return
+-	}
+-
+-	if err := result.Scan(&a.Id, &a.AssetCode, &a.AssetName, &a.CategoryId, &a.CategoryName, &a.Brand, &a.SerialNumber, &a.Status, &a.Location, &a.User, &a.PurchaseDate, &a.Description); err != nil {
+-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
++		respondError(c, err)
+ 		return
+ 	}
+ 
+-	c.JSON(http.StatusOK, a)
++	c.JSON(http.StatusOK, asset)
+ }
+ 
+ // @Summary  Update an asset
+@@ -129,33 +105,27 @@ func (h *Handler) GetAssetByAssetCode(c *gin.Context) {
+ // @Failure  400 {object} map[string]string
+ // @Failure  404 {object} map[string]string
+ // @Router   /updateAsset/{id} [put]
+-
+ func (h *Handler) UpdateAsset(c *gin.Context) {
+-	id, _ := strconv.Atoi(c.Param("id"))
+-	var asset models.AddAssetReq
+-
+-	if err := c.ShouldBindBodyWithJSON(&asset); err != nil {
+-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
++	// c.Param returns a string. A non-numeric id is the caller's mistake, so it
++	// is a 400 — discarding this error turns it into a confusing 404 instead.
++	id, err := strconv.Atoi(c.Param("id"))
++	if err != nil || id <= 0 {
++		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be a positive integer"})
+ 		return
+ 	}
+ 
+-	result, err := h.DB.Exec(context.Background(),
+-		`UPDATE asset SET asset_code = $1, asset_name = $2, brand = $3, serial_number = $4, category_id = $5, status = $6, location = $7, "user" = $8, purchase_date = $9, description = $10 WHERE id = $11`,
+-		asset.AssetCode, asset.AssetName, asset.Brand, asset.SerialNumber,
+-		asset.CategoryId, asset.Status, asset.Location, asset.User,
+-		asset.PurchaseDate, asset.Description, id)
+-
+-	if err != nil {
+-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
++	var asset models.AddAssetReq
++	if err := c.ShouldBindJSON(&asset); err != nil {
++		badRequest(c, err)
+ 		return
+ 	}
+ 
+-	if result.RowsAffected() == 0 {
+-		c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("Asset Id %d not found", id)})
++	if err := h.Service.UpdateAsset(c.Request.Context(), id, asset); err != nil {
++		respondError(c, err)
+ 		return
+ 	}
+ 
+-	c.JSON(http.StatusOK, gin.H{"message": "Asset Updated Successfully"}) //sprintf returns a usable string like a variable
++	c.JSON(http.StatusOK, gin.H{"message": "Asset updated successfully"})
+ }
+ 
+ // @Summary  Delete an asset by its asset code
+@@ -163,21 +133,20 @@ func (h *Handler) UpdateAsset(c *gin.Context) {
+ // @Produce  json
+ // @Security BearerAuth
+ // @Param    assetCode path string true "Asset code"
++// @Success  200 {object} map[string]string
++// @Failure  404 {object} map[string]string
+ // @Router   /deleteAssetByAssetCode/{assetCode} [delete]
+ func (h *Handler) DeleteAssetByAssetCode(c *gin.Context) {
+ 	assetCode := c.Param("assetCode")
+ 	if assetCode == "" {
+-		c.JSON(http.StatusBadRequest, gin.H{"error": "asset_code is required"})
++		c.JSON(http.StatusBadRequest, gin.H{"error": "assetCode is required"})
+ 		return
+ 	}
+ 
+-	_, err := h.DB.Exec(context.Background(),
+-		`DELETE FROM asset where asset_code = $1`, assetCode)
+-
+-	if err != nil {
+-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
++	if err := h.Service.DeleteAssetByCode(c.Request.Context(), assetCode); err != nil {
++		respondError(c, err)
+ 		return
+ 	}
+ 
+-	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("%s Deleted Successfully", assetCode)})
++	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("%s deleted successfully", assetCode)})
+ }
+diff --git a/handler/assetHandler_test.go b/handler/assetHandler_test.go
+index f50ae7d..cecd311 100644
+--- a/handler/assetHandler_test.go
++++ b/handler/assetHandler_test.go
+@@ -5,91 +5,170 @@ import (
+ 	"context"
+ 	"encoding/json"
+ 	"errors"
+-	"inventory-tracker/models"
+-	service "inventory-tracker/services"
+ 	"net/http"
+ 	"net/http/httptest"
+ 	"testing"
+ 
+ 	"github.com/gin-gonic/gin"
++
++	"inventory-tracker/apperr"
++	"inventory-tracker/models"
++	service "inventory-tracker/services"
+ )
+ 
+-func strPtr(s string) *string { return &s } // Go has no literal address-of for a string constant; wrap it in a variable first
++func strPtr(s string) *string { return &s } // Go has no address-of for a string constant; wrap it first
+ 
+-// fakeAssetService is a test double for service.AssetService — lets us control
+-// exactly what AddAsset returns without touching a real or mocked database.
++// fakeAssetService is a test double for service.AssetService. It lets each case
++// decide exactly what the service returns, so the handler can be tested without
++// a database, a real service, or a mock of pgx.
++//
++// Every method is nil-safe: a case that doesn't set a func simply isn't
++// exercising that endpoint, and shouldn't panic because of it.
+ type fakeAssetService struct {
+-	addAssetFunc func(ctx context.Context, asset models.AddAssetReq) error
+-	getAssetList func(ctx context.Context, params models.AssetListParams) ([]models.AssetResponse, int, error)
++	addAsset       func(ctx context.Context, asset models.AddAssetReq) error
++	getAssetList   func(ctx context.Context, params models.AssetListParams) ([]models.AssetResponse, int, error)
++	getAssetByCode func(ctx context.Context, assetCode string) (models.AssetResponse, error)
++	updateAsset    func(ctx context.Context, id int, asset models.AddAssetReq) error
++	deleteByCode   func(ctx context.Context, assetCode string) error
+ }
+ 
+ func (f *fakeAssetService) AddAsset(ctx context.Context, asset models.AddAssetReq) error {
+-	return f.addAssetFunc(ctx, asset)
++	if f.addAsset == nil {
++		return nil
++	}
++	return f.addAsset(ctx, asset)
+ }
+ 
+ func (f *fakeAssetService) GetAssetList(ctx context.Context, params models.AssetListParams) ([]models.AssetResponse, int, error) {
++	if f.getAssetList == nil {
++		return []models.AssetResponse{}, 0, nil
++	}
+ 	return f.getAssetList(ctx, params)
+ }
+ 
++func (f *fakeAssetService) GetAssetByCode(ctx context.Context, assetCode string) (models.AssetResponse, error) {
++	if f.getAssetByCode == nil {
++		return models.AssetResponse{}, nil
++	}
++	return f.getAssetByCode(ctx, assetCode)
++}
++
++func (f *fakeAssetService) UpdateAsset(ctx context.Context, id int, asset models.AddAssetReq) error {
++	if f.updateAsset == nil {
++		return nil
++	}
++	return f.updateAsset(ctx, id, asset)
++}
++
++func (f *fakeAssetService) DeleteAssetByCode(ctx context.Context, assetCode string) error {
++	if f.deleteByCode == nil {
++		return nil
++	}
++	return f.deleteByCode(ctx, assetCode)
++}
++
++// compile-time proof the double still satisfies the interface it stands in for.
++var _ service.AssetService = (*fakeAssetService)(nil)
++
++func newTestContext(method, target string, body []byte) (*gin.Context, *httptest.ResponseRecorder) {
++	w := httptest.NewRecorder()
++	c, _ := gin.CreateTestContext(w)
++	c.Request = httptest.NewRequest(method, target, bytes.NewReader(body))
++	c.Request.Header.Set("Content-Type", "application/json")
++	return c, w
++}
++
+ func TestAddAsset(t *testing.T) {
+-	gin.SetMode(gin.TestMode) // silences gin logging, makes output readable; doesn't affect behavior
++	gin.SetMode(gin.TestMode)
++
++	valid := models.AddAssetReq{
++		AssetCode:  "AST-001",
++		AssetName:  "Dell Laptop",
++		Brand:      strPtr("Dell"),
++		CategoryId: 2,
++		Status:     "active",
++		Location:   "HQ",
++	}
+ 
+ 	cases := []struct {
+ 		name           string
+ 		input          models.AddAssetReq
+-		mockSetup      func() service.AssetService // builds the fake service for this case
++		svc            service.AssetService
+ 		expectedStatus int
+ 	}{
+ 		{
+-			name: "valid asset",
+-			input: models.AddAssetReq{
+-				AssetCode:  "AST-001",
+-				AssetName:  "Dell Laptop",
+-				Brand:      strPtr("Dell"),
+-				CategoryId: 2,
+-				Status:     "active",
+-			},
+-			mockSetup: func() service.AssetService {
+-				return &fakeAssetService{
+-					addAssetFunc: func(ctx context.Context, asset models.AddAssetReq) error {
+-						return nil // simulate success
+-					},
+-				}
+-			},
++			// The positive case is what makes the negative ones mean anything: a
++			// suite of only rejections passes against code that rejects everything.
++			name:           "valid asset is created",
++			input:          valid,
++			svc:            &fakeAssetService{addAsset: func(context.Context, models.AddAssetReq) error { return nil }},
+ 			expectedStatus: http.StatusCreated,
+ 		},
+ 		{
+-			name: "duplicate asset code rejected",
+-			input: models.AddAssetReq{
+-				AssetCode:  "AST-001",
+-				AssetName:  "Dell Laptop",
+-				CategoryId: 2,
+-				Status:     "active",
+-			},
+-			mockSetup: func() service.AssetService {
+-				return &fakeAssetService{
+-					addAssetFunc: func(ctx context.Context, asset models.AddAssetReq) error {
+-						return errors.New("unique constraint violation")
+-					},
+-				}
+-			},
++			name:  "duplicate asset code is a conflict",
++			input: valid,
++			svc: &fakeAssetService{addAsset: func(context.Context, models.AddAssetReq) error {
++				return apperr.ErrDuplicate
++			}},
+ 			expectedStatus: http.StatusConflict,
+ 		},
++		{
++			// Exercises the binding tags: this never reaches the service.
++			name:           "missing required fields are rejected before the service",
++			input:          models.AddAssetReq{AssetName: "No code"},
++			svc:            &fakeAssetService{},
++			expectedStatus: http.StatusBadRequest,
++		},
++		{
++			name:  "an unexpected error is not leaked to the caller",
++			input: valid,
++			svc: &fakeAssetService{addAsset: func(context.Context, models.AddAssetReq) error {
++				return errors.New("connection reset by peer")
++			}},
++			expectedStatus: http.StatusInternalServerError,
++		},
+ 	}
+ 
+ 	for _, tc := range cases {
+ 		t.Run(tc.name, func(t *testing.T) {
+-			h := &Handler{Service: tc.mockSetup()} // fresh handler per case, wired to that case's fake service
+-
++			h := &Handler{Service: tc.svc}
+ 			body, _ := json.Marshal(tc.input)
+ 
+-			w := httptest.NewRecorder()      // captures what the handler writes, to inspect later
+-			c, _ := gin.CreateTestContext(w) // fake gin context wrapping the recorder
++			c, w := newTestContext(http.MethodPost, "/assets", body)
++			h.AddAsset(c)
++
++			if w.Code != tc.expectedStatus {
++				t.Errorf("status = %d; want %d, body: %s", w.Code, tc.expectedStatus, w.Body.String())
++			}
++			if tc.expectedStatus == http.StatusInternalServerError &&
++				bytes.Contains(w.Body.Bytes(), []byte("connection reset")) {
++				t.Errorf("internal error text leaked to the client: %s", w.Body.String())
++			}
++		})
++	}
++}
++
++func TestDeleteAssetByAssetCode(t *testing.T) {
++	gin.SetMode(gin.TestMode)
++
++	cases := []struct {
++		name           string
++		svcErr         error
++		expectedStatus int
++	}{
++		{"existing asset is deleted", nil, http.StatusOK},
++		{"missing asset is a 404, not a silent 200", apperr.ErrNotFound, http.StatusNotFound},
++	}
+ 
+-			c.Request = httptest.NewRequest(http.MethodPost, "/assets", bytes.NewReader(body))
+-			c.Request.Header.Set("Content-Type", "application/json")
++	for _, tc := range cases {
++		t.Run(tc.name, func(t *testing.T) {
++			h := &Handler{Service: &fakeAssetService{
++				deleteByCode: func(context.Context, string) error { return tc.svcErr },
++			}}
+ 
+-			h.AddAsset(c) // call the real handler — it parses the body, calls h.Service.AddAsset, writes the response
++			c, w := newTestContext(http.MethodDelete, "/assets/AST-001", nil)
++			c.Params = gin.Params{{Key: "assetCode", Value: "AST-001"}}
++			h.DeleteAssetByAssetCode(c)
+ 
+ 			if w.Code != tc.expectedStatus {
+ 				t.Errorf("status = %d; want %d, body: %s", w.Code, tc.expectedStatus, w.Body.String())
+@@ -97,3 +176,21 @@ func TestAddAsset(t *testing.T) {
+ 		})
+ 	}
+ }
++
++func TestUpdateAssetRejectsNonNumericID(t *testing.T) {
++	gin.SetMode(gin.TestMode)
++
++	h := &Handler{Service: &fakeAssetService{}}
++	body, _ := json.Marshal(models.AddAssetReq{
++		AssetCode: "AST-001", AssetName: "X", CategoryId: 1, Status: "active", Location: "HQ",
++	})
++
++	c, w := newTestContext(http.MethodPut, "/assets/abc", body)
++	c.Params = gin.Params{{Key: "id", Value: "abc"}}
++	h.UpdateAsset(c)
++
++	// A string where an int belongs is the caller's mistake: 400, not 404 or 500.
++	if w.Code != http.StatusBadRequest {
++		t.Errorf("status = %d; want %d, body: %s", w.Code, http.StatusBadRequest, w.Body.String())
++	}
++}
+diff --git a/handler/auth.go b/handler/auth.go
+index 6e1aa0d..a0711bb 100644
+--- a/handler/auth.go
++++ b/handler/auth.go
+@@ -1,71 +1,32 @@
+ package handler
+ 
+ import (
+-	"context"
+-	"errors"
+-	"inventory-tracker/models"
+-	"inventory-tracker/utils"
+-	"log"
+ 	"net/http"
+ 
+ 	"github.com/gin-gonic/gin"
+-	"github.com/jackc/pgx/v5"
++
++	"inventory-tracker/models"
+ )
+ 
+-// @Summary  Register a new user
++// @Summary  Register a new user and receive a JWT
+ // @Tags     auth
+ // @Accept   json
+ // @Produce  json
+-// @Router  /auth/register [post]
++// @Param    user body models.RegisterReq true "New user"
++// @Success  201 {object} map[string]interface{}
++// @Failure  400 {object} map[string]string
++// @Failure  409 {object} map[string]string
++// @Router   /auth/register [post]
+ func (h *Handler) Register(c *gin.Context) {
+ 	var req models.RegisterReq
+ 	if err := c.ShouldBindJSON(&req); err != nil {
+-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+-		return
+-	}
+-
+-	// Check if username already exists
+-	var exists bool
+-	err := h.DB.QueryRow(context.Background(),
+-		"SELECT EXISTS(SELECT 1 FROM users WHERE username=$1)",
+-		req.Username,
+-	).Scan(&exists)
+-
+-	if err != nil {
+-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+-		return
+-	}
+-
+-	if exists {
+-		c.JSON(http.StatusConflict, gin.H{"error": "Username already exists"})
+-		return
+-	}
+-
+-	// Hash password
+-	hashedPassword, err := utils.HashPassword(req.Password)
+-	if err != nil {
+-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
+-		return
+-	}
+-
+-	// Insert user
+-	var user models.Users
+-	err = h.DB.QueryRow(context.Background(),
+-		`INSERT INTO users (name, category_group, username, password) 
+-         VALUES ($1, $2, $3, $4) 
+-         RETURNING id, name, category_group, username`,
+-		req.Name, req.CategoryGroup, req.Username, hashedPassword,
+-	).Scan(&user.Id, &user.Name, &user.CategoryGroup, &user.Username)
+-
+-	if err != nil {
+-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
++		badRequest(c, err)
+ 		return
+ 	}
+ 
+-	// Generate token
+-	token, err := utils.GenerateToken(user.Id, user.CategoryGroup)
++	user, token, err := h.Auth.Register(c.Request.Context(), req)
+ 	if err != nil {
+-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
++		respondError(c, err)
+ 		return
+ 	}
+ 
+@@ -76,79 +37,59 @@ func (h *Handler) Register(c *gin.Context) {
+ 	})
+ }
+ 
+-// @Summary  Log in and receive a JWT
++// @Summary  Authenticate and receive a JWT
+ // @Tags     auth
+ // @Accept   json
+ // @Produce  json
++// @Param    credentials body models.LoginReq true "Username and password"
++// @Success  200 {object} map[string]interface{}
++// @Failure  400 {object} map[string]string
++// @Failure  401 {object} map[string]string
+ // @Router   /auth/login [post]
+ func (h *Handler) Login(c *gin.Context) {
+ 	var req models.LoginReq
+ 	if err := c.ShouldBindJSON(&req); err != nil {
+-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
++		badRequest(c, err)
+ 		return
+ 	}
+ 
+-	var user models.Users
+-	err := h.DB.QueryRow(context.Background(),
+-		"SELECT id, name, category_group, username, password FROM users WHERE username=$1",
+-		req.Username,
+-	).Scan(&user.Id, &user.Name, &user.CategoryGroup, &user.Username, &user.Password)
+-
+-	if errors.Is(err, pgx.ErrNoRows) {
+-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+-		return
+-	} else if err != nil {
+-		log.Printf("login: query failed for username=%q: %v", req.Username, err)
+-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+-		return
+-	}
+-
+-	// Check password
+-	if !utils.CheckPasswordHash(req.Password, user.Password) {
+-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+-		return
+-	}
+-
+-	// Generate token
+-	token, err := utils.GenerateToken(user.Id, user.CategoryGroup)
++	user, token, err := h.Auth.Login(c.Request.Context(), req)
+ 	if err != nil {
+-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
++		respondError(c, err)
+ 		return
+ 	}
+ 
+-	// Don't send password back
+-	user.Password = ""
+-
+-	c.JSON(http.StatusOK, gin.H{
+-		"token": token,
+-		"user":  user,
+-	})
++	c.JSON(http.StatusOK, gin.H{"token": token, "user": user})
+ }
+ 
+-// @Summary  Get the authenticated user
++// @Summary  Return the authenticated user
+ // @Tags     auth
+ // @Produce  json
+ // @Security BearerAuth
++// @Success  200 {object} models.Users
++// @Failure  401 {object} map[string]string
++// @Failure  404 {object} map[string]string
+ // @Router   /me [get]
+ func (h *Handler) GetCurrentUser(c *gin.Context) {
+-	userID, exists := c.Get("userID")
++	// The id comes from the verified token via AuthMiddleware, never from the
++	// request. A client may say what it wants done; it may not say who it is.
++	value, exists := c.Get("userID")
+ 	if !exists {
+-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
++		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not authenticated"})
+ 		return
+ 	}
+ 
+-	var user models.Users
+-	err := h.DB.QueryRow(context.Background(),
+-		"SELECT id, name, category_group, username FROM users WHERE id=$1",
+-		userID,
+-	).Scan(&user.Id, &user.Name, &user.CategoryGroup, &user.Username)
+-
+-	if errors.Is(err, pgx.ErrNoRows) {
+-		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
++	userID, ok := value.(int)
++	if !ok {
++		// Two-value assertion: the single-value form panics on a type mismatch,
++		// which turns a wiring bug into a crashed request.
++		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+ 		return
+-	} else if err != nil {
+-		log.Printf("me: query failed for userID=%v: %v", userID, err)
+-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
++	}
++
++	user, err := h.Auth.CurrentUser(c.Request.Context(), userID)
++	if err != nil {
++		respondError(c, err)
+ 		return
+ 	}
+ 
+diff --git a/handler/catGroupHandler.go b/handler/catGroupHandler.go
+index a98181d..cdc1c76 100644
+--- a/handler/catGroupHandler.go
++++ b/handler/catGroupHandler.go
+@@ -1,41 +1,26 @@
+ package handler
+ 
+ import (
+-	"context"
+ 	"net/http"
+-
+-	"fmt"
+-	"inventory-tracker/models"
++	"strconv"
+ 
+ 	"github.com/gin-gonic/gin"
++
++	"inventory-tracker/models"
+ )
+ 
+ // @Summary  List category groups
+ // @Tags     category-groups
+ // @Produce  json
++// @Success  200 {array} models.CategoryGroup
+ // @Router   /getCategoryGroup [get]
+ func (h *Handler) GetCategoryGroup(c *gin.Context) {
+-	catGroupList, err := h.DB.Query(context.Background(),
+-		`select id, group_name from category_group`)
+-
++	groups, err := h.CategoryGroups.List(c.Request.Context())
+ 	if err != nil {
+-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
++		respondError(c, err)
+ 		return
+ 	}
+-
+-	var catGroup []models.CategoryGroup
+-	for catGroupList.Next() {
+-		var a models.CategoryGroup
+-		err := catGroupList.Scan(&a.Id, &a.GroupName)
+-
+-		if err != nil {
+-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+-			return
+-		}
+-		catGroup = append(catGroup, a)
+-	}
+-
+-	c.JSON(http.StatusOK, catGroup)
++	c.JSON(http.StatusOK, groups)
+ }
+ 
+ // @Summary  Create a category group
+@@ -43,48 +28,50 @@ func (h *Handler) GetCategoryGroup(c *gin.Context) {
+ // @Accept   json
+ // @Produce  json
+ // @Security BearerAuth
++// @Param    group body models.CategoryGroup true "Group to create"
++// @Success  201 {object} map[string]string
++// @Failure  400 {object} map[string]string
++// @Failure  409 {object} map[string]string
+ // @Router   /addCategoryGroup [post]
+ func (h *Handler) AddCategoryGroup(c *gin.Context) {
+-	var catGroup models.CategoryGroup
+-
+-	if err := c.ShouldBindBodyWithJSON(&catGroup); err != nil {
+-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
++	var group models.CategoryGroup
++	if err := c.ShouldBindJSON(&group); err != nil {
++		badRequest(c, err)
+ 		return
+ 	}
+ 
+-	_, err := h.DB.Exec(context.Background(),
+-		`INSERT into category_group (group_name)
+-		VALUES ($1)`, catGroup.GroupName)
+-
+-	if err != nil {
+-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
++	if err := h.CategoryGroups.Create(c.Request.Context(), group); err != nil {
++		respondError(c, err)
+ 		return
+ 	}
+ 
+-	c.JSON(http.StatusOK, gin.H{"message": "success"})
++	c.JSON(http.StatusCreated, gin.H{"message": "Category group added successfully"})
+ }
+ 
+ // @Summary     Delete a category group
+-// @Description Requires the IT role.
++// @Description Requires the IT role. A group still referenced by categories returns 409.
+ // @Tags        category-groups
+ // @Produce     json
+ // @Security    BearerAuth
+-// @Router      /deleteCategoryGroup [delete]
++// @Param       id path int true "Category group ID"
++// @Success     200 {object} map[string]string
++// @Failure     400 {object} map[string]string
++// @Failure     404 {object} map[string]string
++// @Failure     409 {object} map[string]string
++// @Router      /deleteCategoryGroup/{id} [delete]
+ func (h *Handler) DeleteCategoryGroupById(c *gin.Context) {
+-	var category models.AssetCategory
+-
+-	if err := c.ShouldBindBodyWithJSON(&category); err != nil {
+-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
++	// The identifier moved from the request body into the path. DELETE with a
++	// body has no defined meaning in HTTP and proxies are free to strip it.
++	id, err := strconv.Atoi(c.Param("id"))
++	if err != nil || id <= 0 {
++		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be a positive integer"})
+ 		return
+ 	}
+ 
+-	_, err := h.DB.Exec(context.Background(),
+-		`DELETE FROM category_group where id = $1`, category.Id)
+-
+-	if err != nil {
+-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
++	if err := h.CategoryGroups.DeleteByID(c.Request.Context(), id); err != nil {
++		respondError(c, err)
+ 		return
+ 	}
+ 
+-	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("%s Deleted Successfully", category.CategoryName)})
++	c.JSON(http.StatusOK, gin.H{"message": "Category group deleted successfully"})
+ }
+diff --git a/handler/categoryHandler.go b/handler/categoryHandler.go
+index cb87ecb..1c79848 100644
+--- a/handler/categoryHandler.go
++++ b/handler/categoryHandler.go
+@@ -1,7 +1,6 @@
+ package handler
+ 
+ import (
+-	"context"
+ 	"net/http"
+ 	"strconv"
+ 
+@@ -14,31 +13,15 @@ import (
+ // @Tags     categories
+ // @Produce  json
+ // @Security BearerAuth
++// @Success  200 {array} models.AssetCategory
+ // @Router   /getAssetCategoryList [get]
+ func (h *Handler) GetAssetCategoryList(c *gin.Context) {
+-	//in go assetList here represents direct connection to database, it doesnt work like models in JS/.NET
+-	assetCategoryList, err := h.DB.Query(context.Background(),
+-		`Select id, category_name, category_group from category`)
+-
++	categories, err := h.Categories.List(c.Request.Context())
+ 	if err != nil {
+-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
++		respondError(c, err)
+ 		return
+ 	}
+-
+-	//that's why you have to reassign all data queried from the db to a struct in GO, this is the data we're returning
+-	var assetCategory []models.AssetCategory
+-	for assetCategoryList.Next() {
+-		var a models.AssetCategory
+-		err := assetCategoryList.Scan(&a.Id, &a.CategoryName, &a.CategoryGroup)
+-		//& is to inject data directly into variables otherwise, struct stays empty
+-		if err != nil {
+-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+-			return
+-		}
+-		assetCategory = append(assetCategory, a)
+-	}
+-
+-	c.JSON(http.StatusOK, assetCategory)
++	c.JSON(http.StatusOK, categories)
+ }
+ 
+ // @Summary  Create an asset category
+@@ -46,26 +29,24 @@ func (h *Handler) GetAssetCategoryList(c *gin.Context) {
+ // @Accept   json
+ // @Produce  json
+ // @Security BearerAuth
++// @Param    category body models.AssetCategory true "Category to create"
++// @Success  201 {object} map[string]string
++// @Failure  400 {object} map[string]string
++// @Failure  409 {object} map[string]string
+ // @Router   /addAssetCategory [post]
+ func (h *Handler) AddAssetCategory(c *gin.Context) {
+ 	var category models.AssetCategory
+-
+-	if err := c.ShouldBindBodyWithJSON(&category); err != nil {
+-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
++	if err := c.ShouldBindJSON(&category); err != nil {
++		badRequest(c, err)
+ 		return
+ 	}
+ 
+-	_, err := h.DB.Exec(context.Background(),
+-		`INSERT INTO category (category_name, category_group)
+-		VALUES ($1, $2)`,
+-		category.CategoryName, category.CategoryGroup)
+-
+-	if err != nil {
+-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
++	if err := h.Categories.Create(c.Request.Context(), category); err != nil {
++		respondError(c, err)
+ 		return
+ 	}
+ 
+-	c.JSON(http.StatusCreated, gin.H{"message": "Category Added Successfully"})
++	c.JSON(http.StatusCreated, gin.H{"message": "Category added successfully"})
+ }
+ 
+ // @Summary  Delete an asset category
+@@ -73,21 +54,21 @@ func (h *Handler) AddAssetCategory(c *gin.Context) {
+ // @Produce  json
+ // @Security BearerAuth
+ // @Param    id path int true "Category ID"
++// @Success  200 {object} map[string]string
++// @Failure  400 {object} map[string]string
++// @Failure  404 {object} map[string]string
+ // @Router   /deleteAssetCategoryById/{id} [delete]
+ func (h *Handler) DeleteAssetCategoryById(c *gin.Context) {
+-	id, _ := strconv.Atoi(c.Param("id"))
+-	if id == 0 {
+-		c.JSON(http.StatusBadRequest, gin.H{"error": "id is required"})
++	id, err := strconv.Atoi(c.Param("id"))
++	if err != nil || id <= 0 {
++		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be a positive integer"})
+ 		return
+ 	}
+ 
+-	_, err := h.DB.Exec(context.Background(),
+-		`DELETE FROM category where id = $1`, id)
+-
+-	if err != nil {
+-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
++	if err := h.Categories.DeleteByID(c.Request.Context(), id); err != nil {
++		respondError(c, err)
+ 		return
+ 	}
+ 
+-	c.JSON(http.StatusOK, gin.H{"message": "Deleted Successfully"})
++	c.JSON(http.StatusOK, gin.H{"message": "Category deleted successfully"})
+ }
+diff --git a/handler/errors.go b/handler/errors.go
+new file mode 100644
+index 0000000..69dfe27
+--- /dev/null
++++ b/handler/errors.go
+@@ -0,0 +1,42 @@
++package handler
++
++import (
++	"errors"
++	"log"
++	"net/http"
++
++	"inventory-tracker/apperr"
++
++	"github.com/gin-gonic/gin"
++)
++
++// respondError is the only place in this package that turns an error into a
++// status code. Services and repositories return domain errors; the mapping from
++// those to HTTP lives here and nowhere else.
++//
++// The default branch logs the real error and returns a sentence. Returning
++// err.Error() to a caller leaks internals; logging nothing leaves you debugging
++// a 500 with no information, which costs hours. Both, in the right directions.
++func respondError(c *gin.Context, err error) {
++	switch {
++	case errors.Is(err, apperr.ErrNotFound):
++		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
++	case errors.Is(err, apperr.ErrDuplicate):
++		c.JSON(http.StatusConflict, gin.H{"error": "already exists"})
++	case errors.Is(err, apperr.ErrReferenced):
++		c.JSON(http.StatusConflict, gin.H{"error": "still referenced by other records"})
++	case errors.Is(err, apperr.ErrInvalidCredentials):
++		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
++	case errors.Is(err, apperr.ErrInvalidSortField):
++		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid sortField"})
++	default:
++		log.Printf("[%s %s] unhandled error: %v", c.Request.Method, c.Request.URL.Path, err)
++		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
++	}
++}
++
++// badRequest is for shape problems found before anything downstream is called.
++// Binding errors are safe to echo: they describe the caller's own payload.
++func badRequest(c *gin.Context, err error) {
++	c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
++}
+diff --git a/main.go b/main.go
+index 46b260d..a37912e 100644
+--- a/main.go
++++ b/main.go
+@@ -2,13 +2,14 @@ package main
+ 
+ import (
+ 	"context"
++	"log"
++	"net/http"
++	"os"
++
+ 	"inventory-tracker/handler"
+ 	"inventory-tracker/middleware"
+ 	"inventory-tracker/repository"
+ 	service "inventory-tracker/services"
+-	"log"
+-	"net/http"
+-	"os"
+ 
+ 	"github.com/gin-contrib/cors"
+ 	"github.com/gin-gonic/gin"
+@@ -46,16 +47,27 @@ func main() {
+ 	}
+ 	defer db.Close()
+ 
++	// pgxpool.New only parses — it does not dial. Without this ping a bad
++	// connection string surfaces as a 500 on the first request instead of a
++	// refusal to start.
+ 	if err := db.Ping(context.Background()); err != nil {
+ 		log.Fatalf("cannot reach database at startup: %v", err)
+ 	}
+ 
+-	repo := repository.NewAssetRepo(db)
+-	svc := service.NewAssetService(repo)
++	// Composition root: the one place that knows which concrete implementation
++	// sits behind each interface. Everything below here depends on interfaces.
++	assetRepo := repository.NewAssetRepo(db)
++	userRepo := repository.NewUserRepo(db)
++	categoryRepo := repository.NewCategoryRepo(db)
++	catGroupRepo := repository.NewCategoryGroupRepo(db)
++
+ 	h := &handler.Handler{
+-		DB:      db,
+-		Service: svc,
++		Service:        service.NewAssetService(assetRepo),
++		Auth:           service.NewAuthService(userRepo),
++		Categories:     categoryRepo,
++		CategoryGroups: catGroupRepo,
+ 	}
++
+ 	r := gin.Default()
+ 	r.SetTrustedProxies(nil)
+ 
+@@ -89,8 +101,11 @@ func main() {
+ 	{
+ 		auth.POST("/register", h.Register)
+ 		auth.POST("/login", h.Login)
+-
+ 	}
++
++	// TODO: this is the only read outside AuthMiddleware. The frontend needs it
++	// before login to populate a dropdown on the register form; if that stops
++	// being true, move it into the protected group.
+ 	r.GET(api+"/getCategoryGroup", h.GetCategoryGroup)
+ 
+ 	protected := r.Group(api)
+@@ -115,7 +130,7 @@ func main() {
+ 	admin := r.Group(api)
+ 	admin.Use(middleware.AuthMiddleware(), middleware.RoleMiddleware("IT"))
+ 	{
+-		admin.DELETE("/deleteCategoryGroup", h.DeleteCategoryGroupById)
++		admin.DELETE("/deleteCategoryGroup/:id", h.DeleteCategoryGroupById)
+ 	}
+ 
+ 	port := os.Getenv("PORT")
+diff --git a/models/addAssetReq.go b/models/addAssetReq.go
+index 8165df2..2052407 100644
+--- a/models/addAssetReq.go
++++ b/models/addAssetReq.go
+@@ -1,14 +1,17 @@
+ package models
+ 
++// binding tags make the shape a 400 before any query runs. Without them a
++// missing asset_code travels all the way to Postgres and comes back as a
++// constraint violation, which is a 500-shaped answer to a client mistake.
+ type AddAssetReq struct {
+ 	Id           int     `json:"id"`
+-	AssetCode    string  `json:"assetCode"`
+-	AssetName    string  `json:"assetName"`
++	AssetCode    string  `json:"assetCode" binding:"required"`
++	AssetName    string  `json:"assetName" binding:"required"`
+ 	Brand        *string `json:"brand"`
+ 	SerialNumber *string `json:"serialNumber"`
+-	CategoryId   int     `json:"categoryId"`
+-	Status       string  `json:"status"`
+-	Location     string  `json:"location"`
++	CategoryId   int     `json:"categoryId" binding:"required"`
++	Status       string  `json:"status" binding:"required"`
++	Location     string  `json:"location" binding:"required"`
+ 	User         *string `json:"user"`
+ 	PurchaseDate *string `json:"purchaseDate"`
+ 	Description  *string `json:"description"`
+diff --git a/models/assetCategory.go b/models/assetCategory.go
+index e176635..44172e2 100644
+--- a/models/assetCategory.go
++++ b/models/assetCategory.go
+@@ -2,6 +2,6 @@ package models
+ 
+ type AssetCategory struct {
+ 	Id            int    `json:"id"`
+-	CategoryName  string `json:"categoryName"`
+-	CategoryGroup string `json:"categoryGroup"`
++	CategoryName  string `json:"categoryName" binding:"required"`
++	CategoryGroup string `json:"categoryGroup" binding:"required"`
+ }
+diff --git a/models/assetListQuery.go b/models/assetListQuery.go
+new file mode 100644
+index 0000000..a87426a
+--- /dev/null
++++ b/models/assetListQuery.go
+@@ -0,0 +1,15 @@
++package models
++
++// AssetListQuery is the normalised form of AssetListParams: strings parsed,
++// defaults applied, sort direction resolved. The service produces it, the
++// repository consumes it — so the repository never has to guess what "page 0"
++// or an empty sortOrder means.
++type AssetListQuery struct {
++	Search        string
++	Status        string
++	AssetCategory string
++	SortField     string
++	SortOrder     string // "ASC" or "DESC"
++	Limit         int
++	Offset        int
++}
+diff --git a/models/categoryGroup.go b/models/categoryGroup.go
+index 2928f91..a31bbba 100644
+--- a/models/categoryGroup.go
++++ b/models/categoryGroup.go
+@@ -2,5 +2,5 @@ package models
+ 
+ type CategoryGroup struct {
+ 	Id        int    `json:"Id"`
+-	GroupName string `json:"groupName"`
++	GroupName string `json:"groupName" binding:"required"`
+ }
+diff --git a/repository/assetRepo.go b/repository/assetRepo.go
+index 6e97b09..9c4f55d 100644
+--- a/repository/assetRepo.go
++++ b/repository/assetRepo.go
+@@ -2,25 +2,21 @@ package repository
+ 
+ import (
+ 	"context"
++	"fmt"
++	"strings"
+ 
++	"inventory-tracker/apperr"
+ 	"inventory-tracker/models"
+-
+-	"github.com/jackc/pgx/v5"
+-	"github.com/jackc/pgx/v5/pgconn"
+ )
+ 
+ type AssetRepository interface {
+ 	CreateAsset(ctx context.Context, asset models.AddAssetReq) error
+-	GetAssetList(ctx context.Context, query string, args []any) ([]models.AssetResponse, int, error)
++	GetAssetList(ctx context.Context, q models.AssetListQuery) ([]models.AssetResponse, int, error)
++	GetAssetByCode(ctx context.Context, assetCode string) (models.AssetResponse, error)
++	UpdateAsset(ctx context.Context, id int, asset models.AddAssetReq) error
++	DeleteAssetByCode(ctx context.Context, assetCode string) error
+ }
+ 
+-// testing
+-type DBTX interface {
+-	Close()
+-	Exec(ctx context.Context, sql string, args ...interface{}) (pgconn.CommandTag, error)
+-	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
+-	QueryRow(ctx context.Context, sql string, args ...interface{}) pgx.Row
+-}
+ type AssetRepo struct {
+ 	DB DBTX
+ }
+@@ -29,27 +25,92 @@ func NewAssetRepo(db DBTX) AssetRepository {
+ 	return &AssetRepo{DB: db}
+ }
+ 
+-// prod
++// sortableColumns is an allowlist, not a convenience. A sort column cannot be a
++// bound parameter, so it has to be interpolated into the SQL string — which makes
++// any unvalidated value an injection point. Mapping the caller's name to a column
++// we control closes that.
++var sortableColumns = map[string]string{
++	"id":            "a.id",
++	"asset_code":    "a.asset_code",
++	"asset_name":    "a.asset_name",
++	"brand":         "a.brand",
++	"serial_number": "a.serial_number",
++	"status":        "a.status",
++	"location":      "a.location",
++	"user":          `a."user"`,
++	"purchase_date": "a.purchase_date",
++	"category_name": "c.category_name",
++}
++
++const assetSelect = `SELECT a.id, a.asset_code, a.asset_name, c.id, c.category_name, a.brand,
++	a.serial_number, a.status, a.location, a."user", a.purchase_date, a.description`
++
+ func (r *AssetRepo) CreateAsset(ctx context.Context, asset models.AddAssetReq) error {
+ 	_, err := r.DB.Exec(ctx,
+ 		`INSERT INTO asset (asset_code, asset_name, brand, serial_number, category_id, status, location, "user", purchase_date, description)
+-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
++		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+ 		asset.AssetCode, asset.AssetName, asset.Brand, asset.SerialNumber,
+ 		asset.CategoryId, asset.Status, asset.Location, asset.User,
+ 		asset.PurchaseDate, asset.Description,
+ 	)
+-	return err
++	return translate(err)
+ }
+ 
+-func (r *AssetRepo) GetAssetList(ctx context.Context, query string, args []any) ([]models.AssetResponse, int, error) {
+-	rows, err := r.DB.Query(ctx, query, args...)
++func (r *AssetRepo) GetAssetList(ctx context.Context, q models.AssetListQuery) ([]models.AssetResponse, int, error) {
++	column, ok := sortableColumns[q.SortField]
++	if !ok {
++		return nil, 0, apperr.ErrInvalidSortField
++	}
++	order := "DESC"
++	if q.SortOrder == "ASC" {
++		order = "ASC"
++	}
++
++	sql := assetSelect + `, COUNT(*) OVER() AS total_count
++		FROM asset a
++		JOIN category c ON c.id = a.category_id
++		WHERE 1=1`
++
++	args := []any{}
++	idx := 1
++
++	if q.Search != "" {
++		cols := []string{
++			"a.asset_code", "a.asset_name", "c.category_name", "a.brand",
++			"a.serial_number", "a.status", "a.location", `a."user"`,
++		}
++		conds := make([]string, 0, len(cols))
++		for _, col := range cols {
++			conds = append(conds, fmt.Sprintf("%s ILIKE $%d", col, idx))
++			args = append(args, "%"+q.Search+"%")
++			idx++
++		}
++		sql += " AND (" + strings.Join(conds, " OR ") + ")"
++	}
++	if q.Status != "" {
++		sql += fmt.Sprintf(" AND a.status = $%d", idx)
++		args = append(args, q.Status)
++		idx++
++	}
++	if q.AssetCategory != "" {
++		sql += fmt.Sprintf(" AND c.category_name = $%d", idx)
++		args = append(args, q.AssetCategory)
++		idx++
++	}
++
++	sql += fmt.Sprintf(" ORDER BY %s %s LIMIT $%d OFFSET $%d", column, order, idx, idx+1)
++	args = append(args, q.Limit, q.Offset)
++
++	rows, err := r.DB.Query(ctx, sql, args...)
+ 	if err != nil {
+-		return nil, 0, err
++		return nil, 0, translate(err)
+ 	}
+ 	defer rows.Close()
+ 
+-	var assets []models.AssetResponse
+-	var total int
++	// Initialised, not declared nil: a nil slice marshals to JSON null, which
++	// breaks any client that calls .map on the result of an empty table.
++	assets := []models.AssetResponse{}
++	total := 0
+ 
+ 	for rows.Next() {
+ 		var a models.AssetResponse
+@@ -58,13 +119,58 @@ func (r *AssetRepo) GetAssetList(ctx context.Context, query string, args []any)
+ 			&a.Brand, &a.SerialNumber, &a.Status, &a.Location, &a.User,
+ 			&a.PurchaseDate, &a.Description, &total,
+ 		); err != nil {
+-			return nil, 0, err
++			return nil, 0, translate(err)
+ 		}
+ 		assets = append(assets, a)
+ 	}
+ 	if err := rows.Err(); err != nil {
+-		return nil, 0, err
++		return nil, 0, translate(err)
+ 	}
+-
+ 	return assets, total, nil
+ }
++
++func (r *AssetRepo) GetAssetByCode(ctx context.Context, assetCode string) (models.AssetResponse, error) {
++	var a models.AssetResponse
++	err := r.DB.QueryRow(ctx,
++		assetSelect+`
++		 FROM asset a
++		 JOIN category c ON c.id = a.category_id
++		 WHERE a.asset_code = $1`, assetCode).
++		Scan(&a.Id, &a.AssetCode, &a.AssetName, &a.CategoryId, &a.CategoryName,
++			&a.Brand, &a.SerialNumber, &a.Status, &a.Location, &a.User,
++			&a.PurchaseDate, &a.Description)
++	if err != nil {
++		return models.AssetResponse{}, translate(err)
++	}
++	return a, nil
++}
++
++func (r *AssetRepo) UpdateAsset(ctx context.Context, id int, asset models.AddAssetReq) error {
++	tag, err := r.DB.Exec(ctx,
++		`UPDATE asset SET asset_code=$1, asset_name=$2, brand=$3, serial_number=$4,
++		        category_id=$5, status=$6, location=$7, "user"=$8, purchase_date=$9, description=$10
++		 WHERE id=$11`,
++		asset.AssetCode, asset.AssetName, asset.Brand, asset.SerialNumber,
++		asset.CategoryId, asset.Status, asset.Location, asset.User,
++		asset.PurchaseDate, asset.Description, id)
++	if err != nil {
++		return translate(err)
++	}
++	// The write's own response is the existence check. A SELECT first would be a
++	// second round trip and a race.
++	if tag.RowsAffected() == 0 {
++		return apperr.ErrNotFound
++	}
++	return nil
++}
++
++func (r *AssetRepo) DeleteAssetByCode(ctx context.Context, assetCode string) error {
++	tag, err := r.DB.Exec(ctx, `DELETE FROM asset WHERE asset_code = $1`, assetCode)
++	if err != nil {
++		return translate(err)
++	}
++	if tag.RowsAffected() == 0 {
++		return apperr.ErrNotFound
++	}
++	return nil
++}
+diff --git a/repository/catGroupRepo.go b/repository/catGroupRepo.go
+new file mode 100644
+index 0000000..71993cc
+--- /dev/null
++++ b/repository/catGroupRepo.go
+@@ -0,0 +1,60 @@
++package repository
++
++import (
++	"context"
++
++	"inventory-tracker/apperr"
++	"inventory-tracker/models"
++)
++
++type CategoryGroupRepository interface {
++	List(ctx context.Context) ([]models.CategoryGroup, error)
++	Create(ctx context.Context, group models.CategoryGroup) error
++	DeleteByID(ctx context.Context, id int) error
++}
++
++type catGroupRepo struct {
++	DB DBTX
++}
++
++func NewCategoryGroupRepo(db DBTX) CategoryGroupRepository {
++	return &catGroupRepo{DB: db}
++}
++
++func (r *catGroupRepo) List(ctx context.Context) ([]models.CategoryGroup, error) {
++	rows, err := r.DB.Query(ctx, `SELECT id, group_name FROM category_group ORDER BY group_name`)
++	if err != nil {
++		return nil, translate(err)
++	}
++	defer rows.Close()
++
++	groups := []models.CategoryGroup{}
++	for rows.Next() {
++		var g models.CategoryGroup
++		if err := rows.Scan(&g.Id, &g.GroupName); err != nil {
++			return nil, translate(err)
++		}
++		groups = append(groups, g)
++	}
++	if err := rows.Err(); err != nil {
++		return nil, translate(err)
++	}
++	return groups, nil
++}
++
++func (r *catGroupRepo) Create(ctx context.Context, group models.CategoryGroup) error {
++	_, err := r.DB.Exec(ctx,
++		`INSERT INTO category_group (group_name) VALUES ($1)`, group.GroupName)
++	return translate(err)
++}
++
++func (r *catGroupRepo) DeleteByID(ctx context.Context, id int) error {
++	tag, err := r.DB.Exec(ctx, `DELETE FROM category_group WHERE id = $1`, id)
++	if err != nil {
++		return translate(err)
++	}
++	if tag.RowsAffected() == 0 {
++		return apperr.ErrNotFound
++	}
++	return nil
++}
+diff --git a/repository/categoryRepo.go b/repository/categoryRepo.go
+new file mode 100644
+index 0000000..8d78b65
+--- /dev/null
++++ b/repository/categoryRepo.go
+@@ -0,0 +1,63 @@
++package repository
++
++import (
++	"context"
++
++	"inventory-tracker/apperr"
++	"inventory-tracker/models"
++)
++
++type CategoryRepository interface {
++	List(ctx context.Context) ([]models.AssetCategory, error)
++	Create(ctx context.Context, category models.AssetCategory) error
++	DeleteByID(ctx context.Context, id int) error
++}
++
++type categoryRepo struct {
++	DB DBTX
++}
++
++func NewCategoryRepo(db DBTX) CategoryRepository {
++	return &categoryRepo{DB: db}
++}
++
++func (r *categoryRepo) List(ctx context.Context) ([]models.AssetCategory, error) {
++	rows, err := r.DB.Query(ctx, `SELECT id, category_name, category_group FROM category ORDER BY category_name`)
++	if err != nil {
++		return nil, translate(err)
++	}
++	defer rows.Close()
++
++	categories := []models.AssetCategory{}
++	for rows.Next() {
++		var a models.AssetCategory
++		if err := rows.Scan(&a.Id, &a.CategoryName, &a.CategoryGroup); err != nil {
++			return nil, translate(err)
++		}
++		categories = append(categories, a)
++	}
++	// rows.Err() reports a failure that happened mid-iteration — without it a
++	// truncated result set looks identical to a complete one.
++	if err := rows.Err(); err != nil {
++		return nil, translate(err)
++	}
++	return categories, nil
++}
++
++func (r *categoryRepo) Create(ctx context.Context, category models.AssetCategory) error {
++	_, err := r.DB.Exec(ctx,
++		`INSERT INTO category (category_name, category_group) VALUES ($1, $2)`,
++		category.CategoryName, category.CategoryGroup)
++	return translate(err)
++}
++
++func (r *categoryRepo) DeleteByID(ctx context.Context, id int) error {
++	tag, err := r.DB.Exec(ctx, `DELETE FROM category WHERE id = $1`, id)
++	if err != nil {
++		return translate(err)
++	}
++	if tag.RowsAffected() == 0 {
++		return apperr.ErrNotFound
++	}
++	return nil
++}
+diff --git a/repository/db.go b/repository/db.go
+new file mode 100644
+index 0000000..42becdf
+--- /dev/null
++++ b/repository/db.go
+@@ -0,0 +1,43 @@
++package repository
++
++import (
++	"context"
++	"errors"
++
++	"inventory-tracker/apperr"
++
++	"github.com/jackc/pgx/v5"
++	"github.com/jackc/pgx/v5/pgconn"
++)
++
++// DBTX is the slice of *pgxpool.Pool the repositories actually use. Depending on
++// an interface rather than the concrete pool is what lets a test substitute a
++// fake connection without a database.
++type DBTX interface {
++	Close()
++	Exec(ctx context.Context, sql string, args ...interface{}) (pgconn.CommandTag, error)
++	Query(ctx context.Context, sql string, args ...interface{}) (pgx.Rows, error)
++	QueryRow(ctx context.Context, sql string, args ...interface{}) pgx.Row
++}
++
++// translate converts storage errors into domain errors. Postgres codes and pgx
++// sentinels stop at this boundary: no layer above the repository should need to
++// import pgx to understand what went wrong.
++func translate(err error) error {
++	if err == nil {
++		return nil
++	}
++	if errors.Is(err, pgx.ErrNoRows) {
++		return apperr.ErrNotFound
++	}
++	var pgErr *pgconn.PgError
++	if errors.As(err, &pgErr) {
++		switch pgErr.Code {
++		case "23505": // unique_violation
++			return apperr.ErrDuplicate
++		case "23503": // foreign_key_violation
++			return apperr.ErrReferenced
++		}
++	}
++	return err
++}
+diff --git a/repository/userRepo.go b/repository/userRepo.go
+new file mode 100644
+index 0000000..de92728
+--- /dev/null
++++ b/repository/userRepo.go
+@@ -0,0 +1,70 @@
++package repository
++
++import (
++	"context"
++
++	"inventory-tracker/models"
++)
++
++type UserRepository interface {
++	ExistsByUsername(ctx context.Context, username string) (bool, error)
++	Create(ctx context.Context, name, categoryGroup, username, passwordHash string) (models.Users, error)
++	GetByUsername(ctx context.Context, username string) (models.Users, error)
++	GetByID(ctx context.Context, id int) (models.Users, error)
++}
++
++type userRepo struct {
++	DB DBTX
++}
++
++func NewUserRepo(db DBTX) UserRepository {
++	return &userRepo{DB: db}
++}
++
++func (r *userRepo) ExistsByUsername(ctx context.Context, username string) (bool, error) {
++	var exists bool
++	err := r.DB.QueryRow(ctx,
++		`SELECT EXISTS(SELECT 1 FROM users WHERE username = $1)`, username).Scan(&exists)
++	if err != nil {
++		return false, translate(err)
++	}
++	return exists, nil
++}
++
++func (r *userRepo) Create(ctx context.Context, name, categoryGroup, username, passwordHash string) (models.Users, error) {
++	var u models.Users
++	err := r.DB.QueryRow(ctx,
++		`INSERT INTO users (name, category_group, username, password)
++		 VALUES ($1, $2, $3, $4)
++		 RETURNING id, name, category_group, username`,
++		name, categoryGroup, username, passwordHash).
++		Scan(&u.Id, &u.Name, &u.CategoryGroup, &u.Username)
++	if err != nil {
++		return models.Users{}, translate(err)
++	}
++	return u, nil
++}
++
++// GetByUsername returns the password hash along with the user, because the
++// service needs it to compare. Everything above the service drops it.
++func (r *userRepo) GetByUsername(ctx context.Context, username string) (models.Users, error) {
++	var u models.Users
++	err := r.DB.QueryRow(ctx,
++		`SELECT id, name, category_group, username, password FROM users WHERE username = $1`, username).
++		Scan(&u.Id, &u.Name, &u.CategoryGroup, &u.Username, &u.Password)
++	if err != nil {
++		return models.Users{}, translate(err)
++	}
++	return u, nil
++}
++
++func (r *userRepo) GetByID(ctx context.Context, id int) (models.Users, error) {
++	var u models.Users
++	err := r.DB.QueryRow(ctx,
++		`SELECT id, name, category_group, username FROM users WHERE id = $1`, id).
++		Scan(&u.Id, &u.Name, &u.CategoryGroup, &u.Username)
++	if err != nil {
++		return models.Users{}, translate(err)
++	}
++	return u, nil
++}
+diff --git a/services/assetService.go b/services/assetService.go
+index 755ae80..a9041bc 100644
+--- a/services/assetService.go
++++ b/services/assetService.go
+@@ -2,9 +2,7 @@ package service
+ 
+ import (
+ 	"context"
+-	"fmt"
+ 	"strconv"
+-	"strings"
+ 
+ 	"inventory-tracker/models"
+ 	"inventory-tracker/repository"
+@@ -13,7 +11,11 @@ import (
+ type AssetService interface {
+ 	AddAsset(ctx context.Context, asset models.AddAssetReq) error
+ 	GetAssetList(ctx context.Context, params models.AssetListParams) ([]models.AssetResponse, int, error)
++	GetAssetByCode(ctx context.Context, assetCode string) (models.AssetResponse, error)
++	UpdateAsset(ctx context.Context, id int, asset models.AddAssetReq) error
++	DeleteAssetByCode(ctx context.Context, assetCode string) error
+ }
++
+ type assetService struct {
+ 	Repo repository.AssetRepository
+ }
+@@ -22,61 +24,62 @@ func NewAssetService(repo repository.AssetRepository) AssetService {
+ 	return &assetService{Repo: repo}
+ }
+ 
++const (
++	defaultPageSize = 10
++	maxPageSize     = 100
++)
++
+ func (s *assetService) AddAsset(ctx context.Context, asset models.AddAssetReq) error {
+-	// validation/business rules land here later — for now, straight passthrough
+ 	return s.Repo.CreateAsset(ctx, asset)
+ }
+ 
++// GetAssetList turns the raw query-string values into a query the repository can
++// execute. This is the service's actual job here: deciding what a missing page
++// number, a nonsense page size or an unrecognised sort order mean. The SQL that
++// results from those decisions belongs to the repository.
+ func (s *assetService) GetAssetList(ctx context.Context, params models.AssetListParams) ([]models.AssetResponse, int, error) {
+-	pageInt, _ := strconv.Atoi(params.Page)
+-	pageSizeInt, _ := strconv.Atoi(params.PageSize)
+-	if pageInt < 1 {
+-		pageInt = 1
++	page, err := strconv.Atoi(params.Page)
++	if err != nil || page < 1 {
++		page = 1
+ 	}
+-	if pageSizeInt < 1 {
+-		pageSizeInt = 10
++	pageSize, err := strconv.Atoi(params.PageSize)
++	if err != nil || pageSize < 1 {
++		pageSize = defaultPageSize
++	}
++	// Capped so a caller cannot ask for the whole table in one request.
++	if pageSize > maxPageSize {
++		pageSize = maxPageSize
+ 	}
+-	offset := (pageInt - 1) * pageSizeInt
+ 
+ 	sortOrder := "DESC"
+-	if params.SortOrder == "ascend" {
++	if params.SortOrder == "ascend" || params.SortOrder == "ASC" || params.SortOrder == "asc" {
+ 		sortOrder = "ASC"
+ 	}
+ 
+-	query := `SELECT a.id, a.asset_code, a.asset_name, c.id, c.category_name, a.brand, a.serial_number,
+-		a.status, a.location, a."user", a.purchase_date, a.description, COUNT(*) OVER() as total_count
+-		FROM asset a
+-		JOIN category c on c.id = a.category_id
+-		WHERE 1=1`
+-
+-	args := []any{}
+-	argIdx := 1
+-	searchColumns := []string{"asset_code", "asset_name", "category_name", "brand", "serial_number", "status", "location", `"user"`}
+-
+-	if params.Search != "" {
+-		conditions := []string{}
+-		for _, col := range searchColumns {
+-			conditions = append(conditions, fmt.Sprintf("%s ILIKE $%d", col, argIdx))
+-			args = append(args, "%"+params.Search+"%")
+-			argIdx++
+-		}
+-		query += " AND (" + strings.Join(conditions, " OR ") + ")"
++	sortField := params.SortField
++	if sortField == "" {
++		sortField = "purchase_date"
+ 	}
+ 
+-	if params.Status != "" {
+-		query += fmt.Sprintf(" AND status = $%d", argIdx)
+-		args = append(args, params.Status)
+-		argIdx++
+-	}
++	return s.Repo.GetAssetList(ctx, models.AssetListQuery{
++		Search:        params.Search,
++		Status:        params.Status,
++		AssetCategory: params.AssetCategory,
++		SortField:     sortField,
++		SortOrder:     sortOrder,
++		Limit:         pageSize,
++		Offset:        (page - 1) * pageSize,
++	})
++}
+ 
+-	if params.AssetCategory != "" {
+-		query += fmt.Sprintf(" AND c.category_name = $%d", argIdx)
+-		args = append(args, params.AssetCategory)
+-		argIdx++
+-	}
++func (s *assetService) GetAssetByCode(ctx context.Context, assetCode string) (models.AssetResponse, error) {
++	return s.Repo.GetAssetByCode(ctx, assetCode)
++}
+ 
+-	query += fmt.Sprintf(" ORDER BY %s %s LIMIT $%d OFFSET $%d", params.SortField, sortOrder, argIdx, argIdx+1)
+-	args = append(args, pageSizeInt, offset)
++func (s *assetService) UpdateAsset(ctx context.Context, id int, asset models.AddAssetReq) error {
++	return s.Repo.UpdateAsset(ctx, id, asset)
++}
+ 
+-	return s.Repo.GetAssetList(ctx, query, args)
++func (s *assetService) DeleteAssetByCode(ctx context.Context, assetCode string) error {
++	return s.Repo.DeleteAssetByCode(ctx, assetCode)
+ }
+diff --git a/services/authService.go b/services/authService.go
+new file mode 100644
+index 0000000..c8104db
+--- /dev/null
++++ b/services/authService.go
+@@ -0,0 +1,83 @@
++package service
++
++import (
++	"context"
++	"errors"
++
++	"inventory-tracker/apperr"
++	"inventory-tracker/models"
++	"inventory-tracker/repository"
++	"inventory-tracker/utils"
++)
++
++type AuthService interface {
++	Register(ctx context.Context, req models.RegisterReq) (models.Users, string, error)
++	Login(ctx context.Context, req models.LoginReq) (models.Users, string, error)
++	CurrentUser(ctx context.Context, userID int) (models.Users, error)
++}
++
++type authService struct {
++	Repo repository.UserRepository
++}
++
++func NewAuthService(repo repository.UserRepository) AuthService {
++	return &authService{Repo: repo}
++}
++
++// Register is where the auth rules live: uniqueness, hashing, token issuance.
++// None of it needs an HTTP request or a live database to be exercised, which is
++// the whole reason this layer exists.
++func (s *authService) Register(ctx context.Context, req models.RegisterReq) (models.Users, string, error) {
++	exists, err := s.Repo.ExistsByUsername(ctx, req.Username)
++	if err != nil {
++		return models.Users{}, "", err
++	}
++	if exists {
++		return models.Users{}, "", apperr.ErrDuplicate
++	}
++
++	hash, err := utils.HashPassword(req.Password)
++	if err != nil {
++		return models.Users{}, "", err
++	}
++
++	user, err := s.Repo.Create(ctx, req.Name, req.CategoryGroup, req.Username, hash)
++	if err != nil {
++		return models.Users{}, "", err
++	}
++
++	token, err := utils.GenerateToken(user.Id, user.CategoryGroup)
++	if err != nil {
++		return models.Users{}, "", err
++	}
++	return user, token, nil
++}
++
++func (s *authService) Login(ctx context.Context, req models.LoginReq) (models.Users, string, error) {
++	user, err := s.Repo.GetByUsername(ctx, req.Username)
++	if err != nil {
++		// "No such user" and "wrong password" must be indistinguishable to the
++		// caller, or the endpoint becomes a username oracle.
++		if errors.Is(err, apperr.ErrNotFound) {
++			return models.Users{}, "", apperr.ErrInvalidCredentials
++		}
++		return models.Users{}, "", err
++	}
++
++	if !utils.CheckPasswordHash(req.Password, user.Password) {
++		return models.Users{}, "", apperr.ErrInvalidCredentials
++	}
++
++	// Never let the hash past this layer.
++	user.Password = ""
++
++	token, err := utils.GenerateToken(user.Id, user.CategoryGroup)
++	if err != nil {
++		return models.Users{}, "", err
++	}
++	return user, token, nil
++}
++
++func (s *authService) CurrentUser(ctx context.Context, userID int) (models.Users, error) {
++	return s.Repo.GetByID(ctx, userID)
++}

@@ -2,9 +2,7 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"strconv"
-	"strings"
 
 	"inventory-tracker/models"
 	"inventory-tracker/repository"
@@ -13,7 +11,11 @@ import (
 type AssetService interface {
 	AddAsset(ctx context.Context, asset models.AddAssetReq) error
 	GetAssetList(ctx context.Context, params models.AssetListParams) ([]models.AssetResponse, int, error)
+	GetAssetByCode(ctx context.Context, assetCode string) (models.AssetResponse, error)
+	UpdateAsset(ctx context.Context, id int, asset models.AddAssetReq) error
+	DeleteAssetByCode(ctx context.Context, assetCode string) error
 }
+
 type assetService struct {
 	Repo repository.AssetRepository
 }
@@ -22,61 +24,62 @@ func NewAssetService(repo repository.AssetRepository) AssetService {
 	return &assetService{Repo: repo}
 }
 
+const (
+	defaultPageSize = 10
+	maxPageSize     = 100
+)
+
 func (s *assetService) AddAsset(ctx context.Context, asset models.AddAssetReq) error {
-	// validation/business rules land here later — for now, straight passthrough
 	return s.Repo.CreateAsset(ctx, asset)
 }
 
+// GetAssetList turns the raw query-string values into a query the repository can
+// execute. This is the service's actual job here: deciding what a missing page
+// number, a nonsense page size or an unrecognised sort order mean. The SQL that
+// results from those decisions belongs to the repository.
 func (s *assetService) GetAssetList(ctx context.Context, params models.AssetListParams) ([]models.AssetResponse, int, error) {
-	pageInt, _ := strconv.Atoi(params.Page)
-	pageSizeInt, _ := strconv.Atoi(params.PageSize)
-	if pageInt < 1 {
-		pageInt = 1
+	page, err := strconv.Atoi(params.Page)
+	if err != nil || page < 1 {
+		page = 1
 	}
-	if pageSizeInt < 1 {
-		pageSizeInt = 10
+	pageSize, err := strconv.Atoi(params.PageSize)
+	if err != nil || pageSize < 1 {
+		pageSize = defaultPageSize
 	}
-	offset := (pageInt - 1) * pageSizeInt
+	// Capped so a caller cannot ask for the whole table in one request.
+	if pageSize > maxPageSize {
+		pageSize = maxPageSize
+	}
 
 	sortOrder := "DESC"
-	if params.SortOrder == "ascend" {
+	if params.SortOrder == "ascend" || params.SortOrder == "ASC" || params.SortOrder == "asc" {
 		sortOrder = "ASC"
 	}
 
-	query := `SELECT a.id, a.asset_code, a.asset_name, c.id, c.category_name, a.brand, a.serial_number,
-		a.status, a.location, a."user", a.purchase_date, a.description, COUNT(*) OVER() as total_count
-		FROM asset a
-		JOIN category c on c.id = a.category_id
-		WHERE 1=1`
-
-	args := []any{}
-	argIdx := 1
-	searchColumns := []string{"asset_code", "asset_name", "category_name", "brand", "serial_number", "status", "location", `"user"`}
-
-	if params.Search != "" {
-		conditions := []string{}
-		for _, col := range searchColumns {
-			conditions = append(conditions, fmt.Sprintf("%s ILIKE $%d", col, argIdx))
-			args = append(args, "%"+params.Search+"%")
-			argIdx++
-		}
-		query += " AND (" + strings.Join(conditions, " OR ") + ")"
+	sortField := params.SortField
+	if sortField == "" {
+		sortField = "purchase_date"
 	}
 
-	if params.Status != "" {
-		query += fmt.Sprintf(" AND status = $%d", argIdx)
-		args = append(args, params.Status)
-		argIdx++
-	}
+	return s.Repo.GetAssetList(ctx, models.AssetListQuery{
+		Search:        params.Search,
+		Status:        params.Status,
+		AssetCategory: params.AssetCategory,
+		SortField:     sortField,
+		SortOrder:     sortOrder,
+		Limit:         pageSize,
+		Offset:        (page - 1) * pageSize,
+	})
+}
 
-	if params.AssetCategory != "" {
-		query += fmt.Sprintf(" AND c.category_name = $%d", argIdx)
-		args = append(args, params.AssetCategory)
-		argIdx++
-	}
+func (s *assetService) GetAssetByCode(ctx context.Context, assetCode string) (models.AssetResponse, error) {
+	return s.Repo.GetAssetByCode(ctx, assetCode)
+}
 
-	query += fmt.Sprintf(" ORDER BY %s %s LIMIT $%d OFFSET $%d", params.SortField, sortOrder, argIdx, argIdx+1)
-	args = append(args, pageSizeInt, offset)
+func (s *assetService) UpdateAsset(ctx context.Context, id int, asset models.AddAssetReq) error {
+	return s.Repo.UpdateAsset(ctx, id, asset)
+}
 
-	return s.Repo.GetAssetList(ctx, query, args)
+func (s *assetService) DeleteAssetByCode(ctx context.Context, assetCode string) error {
+	return s.Repo.DeleteAssetByCode(ctx, assetCode)
 }

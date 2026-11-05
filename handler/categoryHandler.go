@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"context"
 	"net/http"
 	"strconv"
 
@@ -14,31 +13,15 @@ import (
 // @Tags     categories
 // @Produce  json
 // @Security BearerAuth
+// @Success  200 {array} models.AssetCategory
 // @Router   /getAssetCategoryList [get]
 func (h *Handler) GetAssetCategoryList(c *gin.Context) {
-	//in go assetList here represents direct connection to database, it doesnt work like models in JS/.NET
-	assetCategoryList, err := h.DB.Query(context.Background(),
-		`Select id, category_name, category_group from category`)
-
+	categories, err := h.Categories.List(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondError(c, err)
 		return
 	}
-
-	//that's why you have to reassign all data queried from the db to a struct in GO, this is the data we're returning
-	var assetCategory []models.AssetCategory
-	for assetCategoryList.Next() {
-		var a models.AssetCategory
-		err := assetCategoryList.Scan(&a.Id, &a.CategoryName, &a.CategoryGroup)
-		//& is to inject data directly into variables otherwise, struct stays empty
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		assetCategory = append(assetCategory, a)
-	}
-
-	c.JSON(http.StatusOK, assetCategory)
+	c.JSON(http.StatusOK, categories)
 }
 
 // @Summary  Create an asset category
@@ -46,26 +29,24 @@ func (h *Handler) GetAssetCategoryList(c *gin.Context) {
 // @Accept   json
 // @Produce  json
 // @Security BearerAuth
+// @Param    category body models.AssetCategory true "Category to create"
+// @Success  201 {object} map[string]string
+// @Failure  400 {object} map[string]string
+// @Failure  409 {object} map[string]string
 // @Router   /addAssetCategory [post]
 func (h *Handler) AddAssetCategory(c *gin.Context) {
 	var category models.AssetCategory
-
-	if err := c.ShouldBindBodyWithJSON(&category); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if err := c.ShouldBindJSON(&category); err != nil {
+		badRequest(c, err)
 		return
 	}
 
-	_, err := h.DB.Exec(context.Background(),
-		`INSERT INTO category (category_name, category_group)
-		VALUES ($1, $2)`,
-		category.CategoryName, category.CategoryGroup)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	if err := h.Categories.Create(c.Request.Context(), category); err != nil {
+		respondError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"message": "Category Added Successfully"})
+	c.JSON(http.StatusCreated, gin.H{"message": "Category added successfully"})
 }
 
 // @Summary  Delete an asset category
@@ -73,21 +54,21 @@ func (h *Handler) AddAssetCategory(c *gin.Context) {
 // @Produce  json
 // @Security BearerAuth
 // @Param    id path int true "Category ID"
+// @Success  200 {object} map[string]string
+// @Failure  400 {object} map[string]string
+// @Failure  404 {object} map[string]string
 // @Router   /deleteAssetCategoryById/{id} [delete]
 func (h *Handler) DeleteAssetCategoryById(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
-	if id == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "id is required"})
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "id must be a positive integer"})
 		return
 	}
 
-	_, err := h.DB.Exec(context.Background(),
-		`DELETE FROM category where id = $1`, id)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	if err := h.Categories.DeleteByID(c.Request.Context(), id); err != nil {
+		respondError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Deleted Successfully"})
+	c.JSON(http.StatusOK, gin.H{"message": "Category deleted successfully"})
 }
